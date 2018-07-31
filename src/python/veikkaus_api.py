@@ -161,4 +161,6 @@ log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messa
 sh.setFormatter(log_format)
 logger.addHandler(sh)
 games = get_games(logger)
-save_games_as_csv(games, "games_new.csv", overwrite = False)
+dirpath = 'data/odds/{}'.format(datetime.now().strftime("%Y-%m-%d"))
+os.makedirs(dirpath, exist_ok=True)
+save_games_as_csv(games, dirpath + "/games.csv", overwrite = False)
