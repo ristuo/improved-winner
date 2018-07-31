@@ -1,4 +1,5 @@
 from selenium import webdriver
+import os
 import csv
 import logging
 import time
@@ -70,9 +71,10 @@ class Event:
 
     def __init__(self, event_type, player_number,
                  is_additional_time, player_link, team, minutes, home_team, away_team,
-                 date, extra_info = ""):
+                 date, game_id, extra_info = ""):
         self.event_type = event_type
         self.player_number = player_number
+        self.game_id = game_id
         self.extra_info = extra_info
         self.player_link = player_link
         self.team = team
@@ -90,7 +92,7 @@ class Event:
         return re.search("[0-9]–[0-9]$", event_type) is not None
 
     @staticmethod
-    def from_bs(elem, home_team, away_team, date):
+    def from_bs(elem, game_id, home_team, away_team, date):
         minutes, is_additional_time = Event._parse_minute(elem.find('td', {'class': 'time'}).text)
         team = elem.find('span', {'class': 'front'}).text
         player_link = elem.find('a')['href']
@@ -110,6 +112,7 @@ class Event:
             team = team,
             minutes = minutes,
             extra_info = extra_info,
+            game_id = game_id,
             player_number = player_number,
             is_additional_time = is_additional_time,
             home_team = home_team,
@@ -125,6 +128,12 @@ def load_events(driver, seuranta, logger):
         .find_element_by_xpath('//*[@data-value="all"]')\
         .click()
     src = driver.page_source
+    current_url = driver.current_url
+    try:
+        game_id = re.search("ottelut/([0-9]*)/", current_url).group(1)
+    except:
+        logger.exception("Couldn't extract game ID!")
+        game_id = "NA"
     soup = BeautifulSoup(src, 'html.parser')
     home_team = soup.find('div', {'class': 'home'}).text.strip().split('\n')[0]
     away_team = soup.find('div', {'class': 'away'}).text.strip().split('\n')[0]
@@ -139,7 +148,7 @@ def load_events(driver, seuranta, logger):
         event_info = "event " + str(i) + "/" + str(len(rows))
         logger.info("Parsing " + event_info)
         try:
-            res.append(Event.from_bs(elem=row, home_team=home_team,
+            res.append(Event.from_bs(elem=row, home_team=home_team, game_id = game_id,
                                      away_team=away_team, date=date))
         except:
             logger.exception("Failed on " + event_info)
@@ -221,6 +230,8 @@ driver = webdriver.Firefox()
 def write_events(season, driver, logger):
     first = True
     i = 1
+    dirpath = "data/events"
+    os.makedirs(dirpath, exist_ok = True)
     max_restarts = 3
     for i in range(0, 500):
         sleepy_time = random.random() * 1.2
@@ -244,7 +255,7 @@ def write_events(season, driver, logger):
         else:
             wmode = 'a'
         fields = events[0].__dict__.keys()
-        with open("events_{}.csv".format(season), wmode) as fp:
+        with open(dirpath + "/events_{}.csv".format(season), wmode) as fp:
             writer = csv.DictWriter(fp, fieldnames=fields)
             if first:
                 writer.writeheader()
