@@ -37,7 +37,6 @@ class Game:
         self.away_team_goals = away_team_goals
         self.events = events
 
-
     def __str__(self):
         return self.name
 
@@ -253,7 +252,6 @@ def write_events(season, driver, logger):
                 writer.writerow(event.__dict__)
         first = False
 
-write_events(2018, driver, logger)
-
-import datetime
-"{}".format(datetime.datetime.now())
+write_events(2017, driver, logger)
+write_events(2016, driver, logger)
+write_events(2015, driver, logger)

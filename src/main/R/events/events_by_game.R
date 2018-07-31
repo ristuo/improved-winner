@@ -7,11 +7,8 @@ library(magrittr)
 options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
-events_files <- c(
-  "events_2015.csv",
-  "events_2016.csv",
-  "events_2017.csv",
-  "events_2018.csv")
+events_years <- 2018
+events_files <- paste0("data/events/events_", events_years, ".csv")
 
 events <- events_files %>% Map(fread, .) %>% rbindlist %>% as.tbl
 events$is_additional_time %<>% as.logical
@@ -70,11 +67,25 @@ set_goals <- function(df) {
 
 goals <- goal_events %>%
   group_by(date, away_team, home_team) %>%
-  do(set_goals(.)) 
+  do(set_goals(.)) %>%
+  ungroup %>%
+  mutate(team = gsub("\\(|\\)", "", team)) 
 
-events_by_game <- goals %>%
-  group_by(away_team, team, home_team, date, player_id, event_type) %>%
-  summarize(n = n())
+goals_data <- goals %>%
+  mutate(team_type = ifelse(team == home_team, "home", "away")) %>%
+  mutate(opposing_team = ifelse(team == home_team, away_team, home_team)) %>%
+  group_by(game_id, player_id, event_type, team_type, opposing_team) %>%
+  summarize(goals = sum(score), n = n())
+
+na_goals <-filter(goals_data, is.na(event_type))
+goals_data <- filter(goals_data, !is.na(event_type))
+
+lineup_files <- paste0("data/lineups/2018-07-31/", 2015:2018, ".csv")
+lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
+
+dataset <- inner_join(lineups, goals_data, by = c("game_id", "player_id", "team_type")) 
+event_types <- unique(dataset$event_type)
+no_events <- anti_join(lineups, goals_data, by = c("game_id", "player_id", "team_type"))
 
 
 

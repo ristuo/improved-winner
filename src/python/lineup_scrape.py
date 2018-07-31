@@ -84,7 +84,7 @@ def load_lineups(game_id, logger):
         hometeam_element = soup.find('table', {'class': 'team-rosters home'})
         hometeam = load_lineup(hometeam_element, 'home', game_id, logger)
         awayteam_element = soup.find('table', {'class': 'team-rosters away'})
-        awayteam = load_lineup(awayteam_element, 'home', game_id, logger)
+        awayteam = load_lineup(awayteam_element, 'away', game_id, logger)
         return hometeam + awayteam
     except:
         logger.exception("Failed to find lineups for game " + game_id)
