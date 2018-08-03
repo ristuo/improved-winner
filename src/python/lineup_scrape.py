@@ -1,18 +1,11 @@
-from selenium import webdriver
-from pprint import pprint
 import requests
 from datetime import datetime
 import os
 import csv
-import logging
-import time
-import random
 import re
 from bs4 import BeautifulSoup
 
-import datetime
 import time
-import random
 import logging
 
 class VeikkausURLs:
@@ -128,6 +121,7 @@ log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messa
 sh.setFormatter(log_format)
 logger.addHandler(sh)
 
+write_lineups(2018, logger)
 write_lineups(2017, logger)
 write_lineups(2016, logger)
 write_lineups(2015, logger)

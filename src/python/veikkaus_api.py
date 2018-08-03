@@ -164,3 +164,4 @@ games = get_games(logger)
 dirpath = 'data/odds/{}'.format(datetime.now().strftime("%Y-%m-%d"))
 os.makedirs(dirpath, exist_ok=True)
 save_games_as_csv(games, dirpath + "/games.csv", overwrite = False)
+

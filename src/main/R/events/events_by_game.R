@@ -1,16 +1,19 @@
 library(data.table)
 library(ggplot2)
 library(rstan)
+rstan_options(auto_write = TRUE)
+#options(mc.cores = parallel::detectCores()) #
+options(mc.cores = 4) 
 library(stringr)
 library(dplyr)
 library(magrittr)
 options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
-events_years <- 2018
+events_years <- c(2018, 2017, 2016)
 events_files <- paste0("data/events/events_", events_years, ".csv")
 
-events <- events_files %>% Map(fread, .) %>% rbindlist %>% as.tbl
+events <- events_files %>% Map(fread, .) %>% rbindlist(use.names = T) %>% as.tbl
 events$is_additional_time %<>% as.logical
 events$minutes %<>% as.numeric
 events$player_id <- str_extract(events$player_link, "/([0-9])*/") %>% gsub("/", "",.) %>% as.numeric 
@@ -74,18 +77,93 @@ goals <- goal_events %>%
 goals_data <- goals %>%
   mutate(team_type = ifelse(team == home_team, "home", "away")) %>%
   mutate(opposing_team = ifelse(team == home_team, away_team, home_team)) %>%
-  group_by(game_id, player_id, event_type, team_type, opposing_team) %>%
+  group_by(game_id, team, player_id, event_type, team_type, opposing_team) %>%
   summarize(goals = sum(score), n = n())
 
 na_goals <-filter(goals_data, is.na(event_type))
 goals_data <- filter(goals_data, !is.na(event_type))
 
-lineup_files <- paste0("data/lineups/2018-07-31/", 2015:2018, ".csv")
+
+lineup_files <- paste0("data/lineups/2018-08-01/", 2016:2018, ".csv")
 lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
 
-dataset <- inner_join(lineups, goals_data, by = c("game_id", "player_id", "team_type")) 
-event_types <- unique(dataset$event_type)
-no_events <- anti_join(lineups, goals_data, by = c("game_id", "player_id", "team_type"))
+missing_lineups <- lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
+lineups <- filter(lineups, !game_id %in% missing_lineups$game_id)
+
+goalies <- lineups %>% filter(player_position == "maalivahti") %>% 
+  select(game_id, player_id, team_type) %>%
+  rename(opposing_team_goalie = player_id) %>%
+  mutate(join_team_type = ifelse(team_type == "home", "away", "home")) %>%
+  select(-team_type)
+
+position_goals <- inner_join(lineups, goals_data, by = c("game_id", "player_id", "team_type")) 
+event_types <- unique(position_goals$event_type)
+opposing_teams <- position_goals %>% select(game_id, team_type, team, opposing_team) %>% unique
+
+event_type_f <- event_types[1]
+position_goals_event <- filter(position_goals, event_type == event_type_f)
+no_events <- anti_join(lineups, position_goals_event, by = c("game_id", "player_id", "team_type")) %>%
+  inner_join(opposing_teams, by = c("game_id", "team_type")) %>%
+  rowwise() %>%
+  do((function(df) {
+    res <- as.data.frame(df, stringsAsFactors = F)
+    res$event_type <- event_type_f
+    res$goals <- 0
+    res$n <- 0
+    res
+  })(.))
+
+dataset <- rbindlist(list(no_events, position_goals_event), use.names = T) %>% as.tbl %>%
+  inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
+
+#goals_data %<>%
+#  inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
+
+set_index <- function(df, variable) {
+  df <- as.data.frame(df)
+  values <- unique(df[,variable])
+  indeces <- 1:length(values) %>% setNames(values)
+  res_name <- paste0(variable, "_index")
+  df[,res_name] <- indeces[as.character(df[,variable])]
+  as.tbl(df)
+}
+
+set_indeces <- function(df, variables) {
+  for (var in variables) {
+    df <- set_index(df, var) 
+  }
+  df
+}
+
+goals_model_discrete_variables <- c(
+  "player_id",
+  "team_type",
+  "team",
+  "opposing_team",
+  "opposing_team_goalie")
+
+goals_data <- set_indeces(dataset, goals_model_discrete_variables)
+goals_model_variables <- c(
+  paste0(goals_model_discrete_variables, "_index"),
+  "goals", "n")
+goals_for_stan <- as.list(goals_data[,goals_model_variables])
+goals_for_stan$nrow <- length(goals_for_stan[[1]])
+n_goalies <- length(unique(goals_for_stan$opposing_team_goalie))
+goals_for_stan$n_goalies <- n_goalies
+n_players <- length(unique(goals_for_stan$player_id))
+goals_for_stan$n_players <- n_players
+n_teams <- length(unique(goals_data$opposing_team))
+goals_for_stan$n_teams <- n_teams
+stan_path <- "src/main/R/events/goals_model_2.stan"
+res <- stan(
+  stan_path, 
+  refresh = 1, 
+  data = goals_for_stan, 
+  iter = 1000, 
+  chains = 4,
+  control = list(adapt_delta = 0.8, max_treedepth = 12)
+)
 
 
-
+goals_post <- rstan::extract(res, "goals_post")[[1]]
+goalie_strenghts <- rstan::extract(res, "goalie_strength")[[1]]
