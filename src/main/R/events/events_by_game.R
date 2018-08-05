@@ -10,6 +10,11 @@ library(magrittr)
 options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
+
+plot_trace <- function(res, variable, which_to_plot) {
+  traceplot(res, paste0(variable, "[", which_to_plot, "]"))
+}
+
 events_years <- c(2018, 2017, 2016)
 events_files <- paste0("data/events/events_", events_years, ".csv")
 
@@ -100,70 +105,76 @@ position_goals <- inner_join(lineups, goals_data, by = c("game_id", "player_id",
 event_types <- unique(position_goals$event_type)
 opposing_teams <- position_goals %>% select(game_id, team_type, team, opposing_team) %>% unique
 
-event_type_f <- event_types[1]
-position_goals_event <- filter(position_goals, event_type == event_type_f)
-no_events <- anti_join(lineups, position_goals_event, by = c("game_id", "player_id", "team_type")) %>%
-  inner_join(opposing_teams, by = c("game_id", "team_type")) %>%
-  rowwise() %>%
-  do((function(df) {
-    res <- as.data.frame(df, stringsAsFactors = F)
-    res$event_type <- event_type_f
-    res$goals <- 0
-    res$n <- 0
-    res
-  })(.))
 
-dataset <- rbindlist(list(no_events, position_goals_event), use.names = T) %>% as.tbl %>%
-  inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
+dirpath <- paste0("r_models/", Sys.Date())
+dir.create(dirpath)
+for (event_type_f in event_types) {
+  position_goals_event <- filter(position_goals, event_type == event_type_f)
+  no_events <- anti_join(lineups, position_goals_event, by = c("game_id", "player_id", "team_type")) %>%
+    inner_join(opposing_teams, by = c("game_id", "team_type")) %>%
+    rowwise() %>%
+    do((function(df) {
+      res <- as.data.frame(df, stringsAsFactors = F)
+      res$event_type <- event_type_f
+      res$goals <- 0
+      res$n <- 0
+      res
+    })(.)) 
+  dataset <- rbindlist(list(no_events, position_goals_event), use.names = T) %>% as.tbl %>%
+    inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
 
-#goals_data %<>%
-#  inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
+  #goals_data %<>%
+  #  inner_join(goalies, by = c(game_id = "game_id", team_type = "join_team_type"))
 
-set_index <- function(df, variable) {
-  df <- as.data.frame(df)
-  values <- unique(df[,variable])
-  indeces <- 1:length(values) %>% setNames(values)
-  res_name <- paste0(variable, "_index")
-  df[,res_name] <- indeces[as.character(df[,variable])]
-  as.tbl(df)
-}
-
-set_indeces <- function(df, variables) {
-  for (var in variables) {
-    df <- set_index(df, var) 
+  set_index <- function(df, variable) {
+    df <- as.data.frame(df)
+    values <- unique(df[,variable])
+    indeces <- 1:length(values) %>% setNames(values)
+    res_name <- paste0(variable, "_index")
+    df[,res_name] <- indeces[as.character(df[,variable])]
+    as.tbl(df)
   }
-  df
+
+  set_indeces <- function(df, variables) {
+    for (var in variables) {
+      df <- set_index(df, var) 
+    }
+    df
+  }
+
+  goals_model_discrete_variables <- c(
+    "player_id",
+    "team_type",
+    "team",
+    "opposing_team",
+    "player_position",
+    "opposing_team_goalie")
+
+  goals_data <- set_indeces(dataset, goals_model_discrete_variables)
+  goals_model_variables <- c(
+    paste0(goals_model_discrete_variables, "_index"),
+    "goals", "n")
+  goals_for_stan <- as.list(goals_data[,goals_model_variables])
+  goals_for_stan$nrow <- length(goals_for_stan[[1]])
+  n_goalies <- length(unique(goals_for_stan$opposing_team_goalie))
+  goals_for_stan$n_goalies <- n_goalies
+  n_players <- length(unique(goals_for_stan$player_id))
+  goals_for_stan$n_players <- n_players
+  n_teams <- length(unique(goals_data$opposing_team))
+  goals_for_stan$n_teams <- n_teams
+  stan_path <- "src/main/R/events/goals_model_4.stan"
+  # 227 secs, 150 kk
+  # 1000 secs 400 iters
+  system(paste0("date > ", dirpath, "/", event_type_f, "_start.txt"))
+  res <- stan(stan_path, refresh = 1, data = goals_for_stan, iter = 2500, 
+              chains = 4, control = list(adapt_delta = 0.8, max_treedepth = 14))
+  fp <- paste0(dirpath, "/", event_type_f, ".rds")
+  save(res, file = fp)
+  goals_data$index <- 1:nrow(goals_data)
+  game_indices <- select(goals_data, game_id, team, event_type, player_id, 
+                         player_position, team_type, index)
+  gps <- rstan::extract(res, "goals_posterior")[[1]]
+  gps_molten <- melt(gps)
+  simulated <- inner_join(gps_molten, game_indices, by = c(Var2 = "index"))
+  save(simulated, file = paste0(dirpath, "/simulations_", event_type_f, ".rds"))
 }
-
-goals_model_discrete_variables <- c(
-  "player_id",
-  "team_type",
-  "team",
-  "opposing_team",
-  "opposing_team_goalie")
-
-goals_data <- set_indeces(dataset, goals_model_discrete_variables)
-goals_model_variables <- c(
-  paste0(goals_model_discrete_variables, "_index"),
-  "goals", "n")
-goals_for_stan <- as.list(goals_data[,goals_model_variables])
-goals_for_stan$nrow <- length(goals_for_stan[[1]])
-n_goalies <- length(unique(goals_for_stan$opposing_team_goalie))
-goals_for_stan$n_goalies <- n_goalies
-n_players <- length(unique(goals_for_stan$player_id))
-goals_for_stan$n_players <- n_players
-n_teams <- length(unique(goals_data$opposing_team))
-goals_for_stan$n_teams <- n_teams
-stan_path <- "src/main/R/events/goals_model_2.stan"
-res <- stan(
-  stan_path, 
-  refresh = 1, 
-  data = goals_for_stan, 
-  iter = 1000, 
-  chains = 4,
-  control = list(adapt_delta = 0.8, max_treedepth = 12)
-)
-
-
-goals_post <- rstan::extract(res, "goals_post")[[1]]
-goalie_strenghts <- rstan::extract(res, "goalie_strength")[[1]]
