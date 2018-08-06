@@ -13,7 +13,7 @@ BASIC_HEADERS = {
     'Content-Type': 'application/json',
     'X-ESA-API-Key': 'ROBOT'
 }
-SLEEPY_TIME = 0.25
+SLEEPY_TIME = 0.0
 
 def _parse_dtm(stampy):
     return datetime.fromtimestamp(float(stampy)/1000)

@@ -162,7 +162,7 @@ for (event_type_f in event_types) {
   goals_for_stan$n_players <- n_players
   n_teams <- length(unique(goals_data$opposing_team))
   goals_for_stan$n_teams <- n_teams
-  stan_path <- "src/main/R/events/goals_model_4.stan"
+  stan_path <-"src/main/R/events/goals_model_4.stan"
   # 227 secs, 150 kk
   # 1000 secs 400 iters
   system(paste0("date > ", dirpath, "/", event_type_f, "_start.txt"))
@@ -177,4 +177,7 @@ for (event_type_f in event_types) {
   gps_molten <- melt(gps)
   simulated <- inner_join(gps_molten, game_indices, by = c(Var2 = "index"))
   save(simulated, file = paste0(dirpath, "/simulations_", event_type_f, ".rds"))
+  rm(res)
+  rm(simulated)
+  gc()
 }
