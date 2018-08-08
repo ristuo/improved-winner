@@ -22,6 +22,7 @@ events <- events_files %>% Map(fread, .) %>% rbindlist(use.names = T) %>% as.tbl
 events$is_additional_time %<>% as.logical
 events$minutes %<>% as.numeric
 events$player_id <- str_extract(events$player_link, "/([0-9])*/") %>% gsub("/", "",.) %>% as.numeric 
+events %<>% unique
 
 goal_events <- events %>%
   mutate(event_type = ifelse(grepl("Laukaus", event_type), "Laukaus", event_type)) %>%
@@ -83,9 +84,9 @@ event_game <- goals %>%
   mutate(n = 1)
 
 lineup_files <- paste0("data/lineups/2018-08-01/", 2016:2018, ".csv")
-lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
-missing_lineups <- lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
-lineups <- filter(lineups, !game_id %in% missing_lineups$game_id) %>%
+raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
+missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
+lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
   filter(game_id %in% event_game$game_id)
 lineup_game <- lineups %>%
   rowwise() %>%
@@ -114,10 +115,10 @@ set_index <- function(df, variable, indices = c()) {
   df <- as.data.frame(df)
   values <- unique(df[,variable])
   if (!length(indices)) {
-    indeces <- 1:length(values) %>% setNames(values)
+    indices <- 1:length(values) %>% setNames(values)
   }
   res_name <- paste0(variable, "_index")
-  df[,res_name] <- indeces[as.character(df[,variable])]
+  df[,res_name] <- indices[as.character(df[,variable])]
   list(df = as.tbl(df), indices = indices)
 }
 
@@ -127,8 +128,60 @@ shot_index <- set_index(shot_goals, "player_id")
 shot_goals <- shot_index$df
 player_index <- shot_index$indices
 other_goals <- set_index(other_goals, c("player_id"), indices = player_index)[[1]]
+
+game_data <- lineups %>%
+  group_by(game_id) %>%
+  do((function(df) {
+    home_players <- filter(df, team_type == "home")$player_id
+    away_players <- filter(df, team_type == "away")$player_id
+    home_players <- player_index[as.character(home_players)] %>% setNames(NULL)
+    away_players <- player_index[as.character(away_players)] %>% setNames(NULL)
+    as.data.frame(
+      t(c(home_players, away_players)),
+      stringsAsFactors = FALSE
+    ) 
+  })(.)) 
+
+teams <- unique(events$home_team)
+team_index <- 1:length(teams) %>% setNames(teams)
+home_teams <- events %>% select(game_id, home_team, away_team) %>% unique
+tmp <- set_index(home_teams, "home_team", team_index)
+tmp_df <- tmp$df
+tmp <- set_index(tmp_df, "away_team", team_index)
+team_data <- tmp$df
+
+results <- events %>%
+  filter(event_type == "Maali") %>%
+  mutate(team = gsub("\\(|\\)","",team)) %>%
+  mutate(home = ifelse(home_team == team, "home", "away")) %>%
+  group_by(game_id, team, home) %>%
+  summarize(goals = n()) %>%
+  ungroup  %>% 
+  dcast(game_id ~ home, fill = 0)
+
+
+results %<>% filter(game_id %in% game_data$game_id) %>% 
+  arrange(game_id) 
+home_team_goals <- results$home
+away_team_goals <- results$away
+game_data %<>% filter(game_id %in% results$game_id) %>% 
+  arrange(game_id) %>%
+  ungroup %>%
+  select(-game_id) %>%
+  as.matrix
+
+team_data %<>% filter(game_id %in% results$game_id) %>% arrange(game_id)
+
 stan_data <- 
   list(
+    n_games = nrow(game_data),
+    n_col_games = 22,
+    n_teams = length(team_index),
+    game_data = game_data,
+    home_team_goals = home_team_goals,
+    away_team_goals = away_team_goals,
+    home_team_index = team_data$home_team_index,
+    away_team_index = team_data$away_team_index,
     shot_n_rows = nrow(shot_goals),
     shot_player_id_index = shot_goals$player_id_index,   
     shot_goals = shot_goals$goals,
@@ -144,15 +197,42 @@ res <-
     "src/main/R/events/model.stan",
     data = stan_data,
     refresh = 1,
-    iter = 5000,
+    iter = 7500,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
       max_treedepth = 16
     )
 )
+path <- paste0("r_models/", Sys.Date(), "/model.rds")
+save(res, file = path)
+htp_goals <- rstan::extract(res, "home_team_post_goals")[[1]]
+atp_goals <- rstan::extract(res, "away_team_post_goals")[[1]]
+examples_path <- paste0("r_models/", Sys.Date(), "/examples")
+for (i in sample(1:nrow(results), 10)) {
+  game_id <- results$game_id[i]
+  res <- table(htp_goals[,i], atp_goals[,i]) / nrow(htp_goals)
+  write.table(as.matrix(res), paste0(examples_path, "/", game_id, ".csv"),
+              row.names = T, col.names = T, sep = ",")
+}
+
 ss <- rstan::extract(res, "opportunity_lambda")[[1]]
 means <- colSums(ss) / nrow(ss)
 ps <- rstan::extract(res, "p")[[1]]
 pmeans <- colSums(ps) / nrow(ps)
 os <- rstan::extract(res, "other_p")[[1]]
+
+ts <- rstan::extract(res, "team_strength")[[1]]
+tmeans <- colSums(ts) / nrow(ts)
+
+ht <- rstan::extract(res, "home_team_effect")[[1]]
+htmean <- mean(ht)
+
+htl <- rstan::extract(res, "home_team_lambda")[[1]]
+atl <- rstan::extract(res, "away_team_lambda")[[1]]
+
+
+team_scoring_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
+tst_means <- colSums(team_scoring_strengths)/nrow(team_scoring_strengths)
+
+
