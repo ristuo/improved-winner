@@ -11,8 +11,7 @@ options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
-plot_trace <- function(res, variable, which_to_plot) {
-  traceplot(res, paste0(variable, "[", which_to_plot, "]"))
+plot_trace <- function(res, variable, which_to_plot) { traceplot(res, paste0(variable, "[", which_to_plot, "]"))
 }
 
 events_years <- c(2018, 2017, 2016)
