@@ -5,8 +5,8 @@ rstan_options(auto_write = TRUE)
 #options(mc.cores = parallel::detectCores()) #
 options(mc.cores = 4) 
 library(stringr)
-library(dplyr)
-library(magrittr)
+library(dplyr) 
+library(magrittr) 
 options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
@@ -189,14 +189,18 @@ stan_data <-
     other_player_id_index = other_goals$player_id_index,
     other_goals = other_goals$goals,
     other_games = other_goals$games,
-    other_n_rows = nrow(other_goals)
+    other_n_rows = nrow(other_goals),
+    oos_n_games = 2,    
+    oos_game_data = game_data[1:2,,drop = F], 
+    oos_home_team_index = team_data$home_team_index[1:2],
+    oos_away_team_index = team_data$away_team_index[1:2]
   )
 res <- 
   stan(  
     "src/main/R/events/model.stan",
     data = stan_data,
-    refresh = 1,
-    iter = 7500,
+    refresh = 5,
+    iter = 1500,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
@@ -221,8 +225,6 @@ ps <- rstan::extract(res, "p")[[1]]
 pmeans <- colSums(ps) / nrow(ps)
 os <- rstan::extract(res, "other_p")[[1]]
 
-ts <- rstan::extract(res, "team_strength")[[1]]
-tmeans <- colSums(ts) / nrow(ts)
 
 ht <- rstan::extract(res, "home_team_effect")[[1]]
 htmean <- mean(ht)
@@ -230,8 +232,21 @@ htmean <- mean(ht)
 htl <- rstan::extract(res, "home_team_lambda")[[1]]
 atl <- rstan::extract(res, "away_team_lambda")[[1]]
 
+x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
+x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
+x <- rstan::extract(res, "opportunity_strength_mu")[[1]]
+x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+
+traceplot(res, pars = "opportunity_strength_sigma")
+traceplot(res, pars = "home_team_effect")
+traceplot(res, pars = paste0("p[", sample(1:300,10), "]"))
+
 
 team_scoring_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
 tst_means <- colSums(team_scoring_strengths)/nrow(team_scoring_strengths)
 
+team_defensive_strengths <- rstan::extract(res, "team_defensive_strength")[[1]]
+tds <- colSums(team_defensive_strengths)/nrow(team_defensive_strengths)
 
+a <- rstan::extract(res, "oos_home_team_goals")[[1]]
+b <- rstan::extract(res, "home_team_post_goals")[[1]]
