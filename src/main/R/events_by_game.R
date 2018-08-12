@@ -35,7 +35,9 @@ events <- events_files %>% Map(fread, .) %>% rbindlist(use.names = T) %>% as.tbl
 events$is_additional_time %<>% as.logical
 events$minutes %<>% as.numeric
 events$player_id <- str_extract(events$player_link, "/([0-9])*/") %>% gsub("/", "",.) %>% as.numeric 
-events %<>% unique
+events %<>% unique %>% 
+  mutate(date = as.Date(date, "%d.%m.%Y")) %>%
+  mutate(year = year(date))
 
 goal_events <- events %>%
   mutate(event_type = ifelse(grepl("Laukaus", event_type), "Laukaus", event_type)) %>%
@@ -93,7 +95,7 @@ goals <- goal_events %>%
 
 event_game <- goals %>%
   mutate(event_type = ifelse(is.na(event_type), "unknown", event_type)) %>%
-  select(player_id, game_id, event_type, score) %>%
+  select(player_id, game_id, event_type, score, year) %>%
   mutate(n = 1)
 
 
@@ -159,10 +161,10 @@ oos <- data.frame(
     "Ilves",
     "KuPS",
     "HJK"),
+    year = 2018,
   stringsAsFactors = FALSE
 )
-games <- select(events, "game_id", "home_team", "away_team", "date") %>% unique %>%
-  mutate(date = as.Date(date, "%d.%m.%Y")) %>%
+games <- select(events, "game_id", "home_team", "away_team", "date", year) %>% unique %>%
   filter(game_id %in% raw_lineups$game_id)
 find_most_recent_game <- function(games, team) {
   res <- filter(games, home_team == team | away_team == team) %>%
@@ -237,10 +239,10 @@ results <- events %>%
   filter(event_type == "Maali") %>%
   mutate(team = gsub("\\(|\\)","",team)) %>%
   mutate(home = ifelse(home_team == team, "home", "away")) %>%
-  group_by(game_id, team, home) %>%
+  group_by(game_id, team, home, year) %>%
   summarize(goals = n()) %>%
   ungroup  %>% 
-  dcast(game_id ~ home, fill = 0)
+  dcast(game_id + year ~ home, fill = 0)
 
 
 results %<>% filter(game_id %in% game_data$game_id) %>% 
@@ -263,12 +265,16 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   as.matrix
 
 
+years <- unique(c(results$year, oos$year))
+year_index <- 1:length(years) %>% setNames(years)
 
 stan_data <- 
   list(
     n_games = nrow(game_data),
     n_col_games = 22,
     n_teams = length(team_index),
+    game_year = year_index[as.character(results$year)] %>% setNames(NULL),
+    n_years = length(unique(years)),
     game_data = game_data,
     home_team_goals = home_team_goals,
     away_team_goals = away_team_goals,
@@ -286,14 +292,15 @@ stan_data <-
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data, 
     oos_home_team_index = oos_home_team_index,
-    oos_away_team_index = oos_away_team_index
+    oos_away_team_index = oos_away_team_index,
+    oos_game_year = year_index[as.character(oos$year)] %>% setNames(NULL)
   )
 res <- 
   stan(  
-    "src/main/R/events/model.stan",
+    "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 15000,
+    iter = 500,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
