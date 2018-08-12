@@ -1,4 +1,6 @@
 *.rds
 *.csv
 r_models
+geckodriver*
+.idea
 
