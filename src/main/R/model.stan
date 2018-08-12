@@ -141,6 +141,7 @@ model {
   shot_n ~ poisson(shot_games[shot_player_id_index] .* opportunity_lambda);
   shot_goals ~ binomial(shot_n, p);
   other_goals ~ binomial(other_games, other_p);
+
   for (i in 1:n_games) {
     home_team_goals ~ poisson(
       home_team_effect + 

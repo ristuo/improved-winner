@@ -299,12 +299,12 @@ res <-
   stan(  
     "src/main/R/model.stan",
     data = stan_data,
-    refresh = 5,
+    refresh = 1,
     iter = 500,
     chains = 4,   
     control = list(
-      adapt_delta = 0.99,
-      max_treedepth = 16
+      adapt_delta = 0.999,
+      max_treedepth = 14
     )
 )
 dir.create(paste0("r_models/", Sys.Date()))
