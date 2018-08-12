@@ -115,15 +115,55 @@ lineup_game <- lineups %>%
   ungroup %>%
   mutate(event_type = enc2utf8(event_type))
 
-
 oos <- data.frame(
-  game_id = c(970094, 970095, 970097, 970098, 970099),
-  home = c("FC Honka", "VPS", "FC Lahti", "KuPS", "RoPS"),
-  away = c("TPS", "SJK", "FC Inter", "PS Kemi", "IFK Mariehamn"),
+  game_id = c(
+    970094, 
+    970095, 
+    970097, 
+    970098, 
+    970099, 
+    970100, 
+    970101, 
+    970102, 
+    970103,
+    970104,
+    970105,
+    1,
+    2
+),
+  home = c(
+    "FC Honka", 
+    "VPS", 
+    "FC Lahti", 
+    "KuPS", 
+    "RoPS", 
+    "TPS", 
+    "FC Inter", 
+    "HJK", 
+    "IFK Mariehamn", 
+    "FC Lahti", 
+    "SJK",
+    "HJK",
+    "KuPS"),
+  away = c(
+    "TPS", 
+    "SJK", 
+    "FC Inter", 
+    "PS Kemi", 
+    "IFK Mariehamn", 
+    "VPS", 
+    "KuPS",
+    "PS Kemi",
+    "FC Honka",
+    "RoPS",
+    "Ilves",
+    "KuPS",
+    "HJK"),
   stringsAsFactors = FALSE
 )
 games <- select(events, "game_id", "home_team", "away_team", "date") %>% unique %>%
-  mutate(date = as.Date(date, "%d.%m.%Y"))
+  mutate(date = as.Date(date, "%d.%m.%Y")) %>%
+  filter(game_id %in% raw_lineups$game_id)
 find_most_recent_game <- function(games, team) {
   res <- filter(games, home_team == team | away_team == team) %>%
     arrange(date) %>%
@@ -253,7 +293,7 @@ res <-
     "src/main/R/events/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 7500,
+    iter = 15000,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
@@ -273,6 +313,13 @@ for (i in sample(1:nrow(results), 10)) {
               row.names = T, col.names = T, sep = ",")
 }
 
+more_goals_than <- function(goals_table, x = 2.5) {
+  m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
+  m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
+  mat <- m1 + m2
+  sum(goals_table[mat > x])/sum(goals_table)
+}
+
 oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
 oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]
 for (i in 1:nrow(oos)) {
@@ -281,6 +328,7 @@ for (i in 1:nrow(oos)) {
   cat(oos$home[i], "vs", oos$away[i], "\n")
   cat("Goals:\n")
   print(goals_table)
+  cat("P(#Goals > 2.5) = ", more_goals_than(goals_table),"\n", sep = "")
   total <- nrow(oos_hg)
   home_win <- sum(goals_table[lower.tri(goals_table)])
   away_win <- sum(goals_table[upper.tri(goals_table)])
@@ -322,8 +370,29 @@ team_scoring_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
 tst_means <- colSums(team_scoring_strengths)/nrow(team_scoring_strengths)
 
 
-team_defensive_strengths <- rstan::extract(res, "team_defensive_strength")[[1]]
+team_defensive_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
+colnames(team_defensive_strengths) <- names(team_index)
+df <- melt(team_defensive_strengths)
+df <- filter(df, Var2 %in% c("FC Inter", "KuPS"))
+ggplot(df, aes(x = value)) + theme_classic() + geom_histogram(bins = 50) + facet_grid(Var2~.)
 tds <- colSums(team_defensive_strengths)/nrow(team_defensive_strengths)
 
 a <- rstan::extract(res, "oos_home_team_goals")[[1]]
 b <- rstan::extract(res, "home_team_post_goals")[[1]]
+
+hgoals <- rstan::extract(res, "home_team_post_goals")[[1]]
+agoals <- rstan::extract(res, "away_team_post_goals")[[1]]
+hgoals <- rstan::extract(res, "oos_home_team_goals")[[1]]
+agoals <- rstan::extract(res, "oos_away_team_goals")[[1]]
+
+hg_all <- apply(hgoals, 1, sum)
+ag_all <- apply(agoals, 1, sum)
+
+games_meta <- results %>% inner_join(games, by = "game_id")
+plot_n_goals <- function(team1, team2, games_meta, hgoals, agoals) {
+  games <- filter(games_meta, home_team %in% c(team1, team2) & away_team %in% c(team1, team2))$game_id
+  game_indices <- which(results$game_id %in% games)
+  goal_sums <- hgoals[,game_indices] + agoals[,game_indices] > 2.5
+  df <- melt(goal_sums)
+  ggplot(df, aes(x = value)) + geom_bar() + theme_classic() + facet_wrap(~Var2)
+}
