@@ -1,6 +1,6 @@
 library(data.table)
 library(ggplot2)
-library(rstan)
+library(rjags)
 rstan_options(auto_write = TRUE)
 #options(mc.cores = parallel::detectCores()) #
 options(mc.cores = 4) 
@@ -288,18 +288,30 @@ stan_data <-
     oos_home_team_index = oos_home_team_index,
     oos_away_team_index = oos_away_team_index
   )
-res <- 
-  stan(  
-    "src/main/R/events/model.stan",
+model <- 
+  jags.model(  
+    "src/main/R/model.jags",
     data = stan_data,
-    refresh = 5,
-    iter = 15000,
-    chains = 4,   
-    control = list(
-      adapt_delta = 0.99,
-      max_treedepth = 16
-    )
-)
+    n.chains = 4
+  )
+update(model, 5000)
+player_strengths <- jags.samples(model, c("opportunity_lambda", "p_shot"), 500)
+res <- jags.samples(model, c("ht_players", "team_defence_strength", "home_team_effect", "opportunity_lambda", "p_shot"), 1000)
+plot(as.mcmc.list(player_strengths$p_shot)[,20:22])
+plot(as.mcmc.list(res$ht_players)[,20:25])
+plot(as.mcmc.list(res$home_team_effect))
+plot(as.mcmc.list(res$team_defence_strength)[,1:3])
+
+team_dstrengths <- as.matrix(as.mcmc.list(res$team_defence_strength))
+
+ps <- as.matrix(as.mcmc.list(res$team_defence_strength))
+ps <- as.matrix(as.mcmc.list(player_strengths[[2]]))
+ps <- as.mcmc.list(player_strengths[[1]])
+ht_players <- as.matrix(as.mcmc.list(res$ht_players))
+
+gelman.diag(as.mcmc.list(res$team_defence_strength))
+gelman.diag(as.mcmc.list(res$home_team_effect))
+
 dir.create(paste0("r_models/", Sys.Date()))
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
@@ -311,88 +323,4 @@ for (i in sample(1:nrow(results), 10)) {
   results_table <- table(htp_goals[,i], atp_goals[,i]) / nrow(htp_goals)
   write.table(as.matrix(res), paste0(examples_path, "/", game_id, ".csv"),
               row.names = T, col.names = T, sep = ",")
-}
-
-more_goals_than <- function(goals_table, x = 2.5) {
-  m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
-  m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
-  mat <- m1 + m2
-  sum(goals_table[mat > x])/sum(goals_table)
-}
-
-oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
-oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]
-for (i in 1:nrow(oos)) {
-  cat(paste(rep("-", 80), collapse = ""), "\n")
-  goals_table <- table(oos_hg[,i], oos_ag[,i])
-  cat(oos$home[i], "vs", oos$away[i], "\n")
-  cat("Goals:\n")
-  print(goals_table)
-  cat("P(#Goals > 2.5) = ", more_goals_than(goals_table),"\n", sep = "")
-  total <- nrow(oos_hg)
-  home_win <- sum(goals_table[lower.tri(goals_table)])
-  away_win <- sum(goals_table[upper.tri(goals_table)])
-  draw <- sum(diag(goals_table))
-  probs <- c("1" = home_win / total, "x" = draw / total, "2" = away_win / total)
-  cat("Probs:\n")
-  print(round(probs,2))
-  cat("Implied odds\n")
-  print(round(1 / probs,2))
-}
-
-
-ss <- rstan::extract(res, "opportunity_lambda")[[1]]
-means <- colSums(ss) / nrow(ss)
-ps <- rstan::extract(res, "p")[[1]]
-pmeans <- colSums(ps) / nrow(ps)
-os <- rstan::extract(res, "other_p")[[1]]
-
-
-ht <- rstan::extract(res, "home_team_effect")[[1]]
-htmean <- mean(ht)
-
-htl <- rstan::extract(res, "home_team_lambda")[[1]]
-atl <- rstan::extract(res, "away_team_lambda")[[1]]
-
-x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
-x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
-x <- rstan::extract(res, "opportunity_strength_mu")[[1]]
-x <- rstan::extract(res, "scoring_strength_mu")[[1]]
-
-traceplot(res, pars = "opportunity_strength_sigma")
-traceplot(res, pars = "home_team_effect")
-traceplot(res, pars = paste0("p[", sample(1:300,10), "]"))
-traceplot(res, pars = "oos_home_team_goals[1]")
-
-
-
-team_scoring_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
-tst_means <- colSums(team_scoring_strengths)/nrow(team_scoring_strengths)
-
-
-team_defensive_strengths <- rstan::extract(res, "team_scoring_strength")[[1]]
-colnames(team_defensive_strengths) <- names(team_index)
-df <- melt(team_defensive_strengths)
-df <- filter(df, Var2 %in% c("FC Inter", "KuPS"))
-ggplot(df, aes(x = value)) + theme_classic() + geom_histogram(bins = 50) + facet_grid(Var2~.)
-tds <- colSums(team_defensive_strengths)/nrow(team_defensive_strengths)
-
-a <- rstan::extract(res, "oos_home_team_goals")[[1]]
-b <- rstan::extract(res, "home_team_post_goals")[[1]]
-
-hgoals <- rstan::extract(res, "home_team_post_goals")[[1]]
-agoals <- rstan::extract(res, "away_team_post_goals")[[1]]
-hgoals <- rstan::extract(res, "oos_home_team_goals")[[1]]
-agoals <- rstan::extract(res, "oos_away_team_goals")[[1]]
-
-hg_all <- apply(hgoals, 1, sum)
-ag_all <- apply(agoals, 1, sum)
-
-games_meta <- results %>% inner_join(games, by = "game_id")
-plot_n_goals <- function(team1, team2, games_meta, hgoals, agoals) {
-  games <- filter(games_meta, home_team %in% c(team1, team2) & away_team %in% c(team1, team2))$game_id
-  game_indices <- which(results$game_id %in% games)
-  goal_sums <- hgoals[,game_indices] + agoals[,game_indices] > 2.5
-  df <- melt(goal_sums)
-  ggplot(df, aes(x = value)) + geom_bar() + theme_classic() + facet_wrap(~Var2)
 }
