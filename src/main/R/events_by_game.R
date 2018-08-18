@@ -194,15 +194,22 @@ oos_lineups <- missing %>% rowwise() %>%
     bind_rows(home_res, away_res)
   })(.)) %>% bind_rows(oos_known_lineups)
 
+player_n_games <- lineups %>% 
+  filter(game_id %in% events$game_id) %>%
+  group_by(player_id) %>%
+  summarize(games = n_distinct(game_id))
+
 player_goals <- filter(event_game, game_id %in% lineup_game$game_id) %>%
   bind_rows(lineup_game) %>%
   group_by(player_id, event_type) %>%
-  summarize(goals = sum(score), n = sum(n), games = n_distinct(game_id))
+  summarize(goals = sum(score), n = sum(n)) %>%
+  inner_join(player_n_games, by = "player_id")
 
 shot_goals <- filter(player_goals, event_type == "Laukaus")
 other_goals <- filter(player_goals, event_type != "Laukaus") %>%
   group_by(player_id) %>%
-  summarize(goals = sum(goals), games = sum(games))
+  summarize(goals = sum(goals)) %>%
+  inner_join(player_n_games, by = "player_id")
 
 set_index <- function(df, variable, indices = c()) {
   df <- as.data.frame(df)
@@ -222,9 +229,7 @@ shot_goals <- shot_index$df
 player_index <- shot_index$indices
 other_goals <- set_index(other_goals, c("player_id"), indices = player_index)[[1]]
 
-
 game_data <- make_game_data(lineups)
-
 teams <- unique(events$home_team)
 team_index <- 1:length(teams) %>% setNames(teams)
 home_teams <- events %>% select(game_id, home_team, away_team) %>% unique
@@ -262,8 +267,6 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-
-
 stan_data <- 
   list(
     n_games = nrow(game_data),
@@ -295,14 +298,15 @@ model <-
     n.chains = 4
   )
 update(model, 5000)
-player_strengths <- jags.samples(model, c("opportunity_lambda", "p_shot"), 500)
-res <- jags.samples(model, c("ht_players", "team_defence_strength", "home_team_effect", "opportunity_lambda", "p_shot"), 1000)
-plot(as.mcmc.list(player_strengths$p_shot)[,20:22])
+res <- jags.samples(model, c("ht_players", "b", "team_defence_strength", "home_team_effect", "opportunity_lambda", "p_shot"), 1000)
+plot(as.mcmc.list(res$p_shot)[,20:22])
 plot(as.mcmc.list(res$ht_players)[,20:25])
 plot(as.mcmc.list(res$home_team_effect))
-plot(as.mcmc.list(res$team_defence_strength)[,1:3])
+plot(as.mcmc.list(res$team_defence_strength)[,2:4])
+plot(as.mcmc.list(res$b)[,1:3])
 
 team_dstrengths <- as.matrix(as.mcmc.list(res$team_defence_strength))
+colMeans(team_dstrengths)
 
 ps <- as.matrix(as.mcmc.list(res$team_defence_strength))
 ps <- as.matrix(as.mcmc.list(player_strengths[[2]]))

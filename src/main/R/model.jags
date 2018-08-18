@@ -1,36 +1,48 @@
 model {
   for (i in 1:shot_n_rows) {
-    shot_n[i] ~ dpois(shot_games[shot_player_id_index[i]] * opportunity_lambda[i]) 
-    opportunity_lambda[i] ~ dlnorm(opportunity_strength_mu, 1 / opportunity_strength_sigma)
+    shot_n[i] ~ dpois(shot_games[shot_player_id_index[i]] * opportunity_mu) 
+    log(opportunity_mu) = opportunity_lambda[i]
+    opportunity_lambda[i] ~ dgamma(opportunity_strength_alpha, opportunity_strength_beta)
     shot_goals[i] ~ dbinom(p_shot[shot_player_id_index[i]], shot_n[i])
-    tmp_p_shot[i] ~ dnorm(p_shot_mu, 1 / p_shot_sigma)
-    logit(p_shot[i]) <- tmp_p_shot[i]
+    tmp_p_shot[shot_player_id_index[i]] ~ dnorm(p_shot_mu, 1 / p_shot_sigma)
+    logit(p_shot[shot_player_id_index[i]]) <- tmp_p_shot[i]
+    other_goals[i] ~ dbinom(p_other_goals[other_player_id_index[i]], other_games[other_player_id_index[i]])
+    tmp_p_other[other_player_id_index[i]] ~ dnorm(p_other_mu, 1 / p_other_sigma)
+    logit(p_other_goals[other_player_id_index[i]]) <- tmp_p_other[i]
   }
+  p_other_mu ~ dnorm(0,1)
+  p_other_sigma ~ dgamma(0.0001, 0.0001)
   p_shot_mu ~ dnorm(0, 1)
-  p_shot_sigma ~ dunif(0, 10)
-  opportunity_strength_mu ~ dlnorm(0.01, 1)
-  opportunity_strength_sigma ~ dunif(0, 30)
+  p_shot_sigma ~ dgamma(0.0001, 0.0001)
+  opportunity_strength_alpha ~ dlnorm(0.01, 1)
+  opportunity_strength_beta ~ dgamma(0.0001, 0.0001)
   for (i in 1:n_games) {
       ht_players[i] <- 
-        sum(opportunity_lambda[game_data[i,1:11]] * p_shot[game_data[i,1:11]])
+        sum(opportunity_lambda[game_data[i,1:11]] * p_shot[game_data[i,1:11]]) + 
+        sum(p_other_goals[game_data[i, 1:11]])
       at_players[i] <- 
-        sum(opportunity_lambda[game_data[i,12:22]] * p_shot[game_data[i,12:22]])
+        sum(opportunity_lambda[game_data[i,12:22]] * p_shot[game_data[i,12:22]]) +
+        sum(p_other_goals[game_data[i, 12:22]])
   }
   for (i in 1:n_teams) {
     team_attack_strength[i] ~ dlnorm(team_attack_strength_mu, 1 / team_attack_strength_sigma)
     team_defence_strength[i] ~ dnorm(team_defence_strength_mu, 1 / team_defence_strength_sigma)
   }
   team_attack_strength_mu ~ dnorm(0, 1)
-  team_attack_strength_sigma ~ dunif(0, 15)
+  team_attack_strength_sigma ~ dgamma(0.001, 0.001)
   team_defence_strength_mu ~ dnorm(1, 1)
-  team_defence_strength_sigma ~ dunif(0, 15)
+  team_defence_strength_sigma ~ dgamma(0.001, 0.001)
   for (i in 1:n_games) {
     home_team_goals[i] ~ dpois(
       team_defence_strength[away_team_index[i]] * 
-        (team_attack_strength[home_team_index[i]] + ht_players[i] + home_team_effect))
+        (b[1] + b[2] * team_attack_strength[home_team_index[i]] + 
+         b[3] * ht_players[i] + home_team_effect))
     away_team_goals[i] ~ dpois(
       team_defence_strength[home_team_index[i]] *
-        (team_attack_strength[away_team_index[i]] + at_players[i]))
+        (b[1] + b[2] * team_attack_strength[away_team_index[i]] + b[3] * at_players[i]))
+  }
+  for (i in 1:3) {
+    b[i] ~ dlnorm(0, 10)
   }
   home_team_effect ~ dlnorm(0.1, 0.1)
 }
