@@ -268,18 +268,110 @@ stan_data <-
     oos_home_team_index = oos_home_team_index,
     oos_away_team_index = oos_away_team_index
   )
-res <- 
+player_res <- 
   stan(  
-    "src/main/R/model.stan",
+    "src/main/R/player_model.stan",
     data = stan_data,
-    refresh = 5,
-    iter = 15000,
+    refresh = 10,
+    iter = 5500,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
       max_treedepth = 16
     )
+  )
+
+expected_goals <- rstan::extract(res, "expected_goals")[[1]] %>% colMeans
+
+expected <- data.frame(
+  player_id = as.numeric(names(player_index)),
+  expected_goals = expected_goals[player_index]
+) %>% as.tbl 
+
+player_preds <- lineups %>%
+  inner_join(expected, by = "player_id") %>%
+  group_by(team_type, game_id) %>%
+  summarize(expected_goals = sum(expected_goals)) %>%
+  dcast(game_id ~ team_type) %>% 
+  as.tbl %>% 
+  rename("away_eg" = "away") %>%
+  rename("home_eg" = "home")
+
+
+team_expected <- results %>% inner_join(player_preds, by = "game_id")
+game_year <- events %>% select(game_id, date) %>% unique %>% 
+  mutate(date = as.Date(date, "%d.%m.%Y")) %>%
+  mutate(year = year(date)) %>%
+  select(-date)
+game_year_tmp <- set_index(game_year, "year")
+game_year <- game_year_tmp$df
+
+ds <- team_expected %>% inner_join(team_data, by = "game_id") %>%
+  inner_join(game_year, by = "game_id") 
+
+game_stan_data <- 
+  list(
+    n_games = nrow(ds),
+    n_teams = length(team_index),
+    home_team_goals = ds$home,
+    away_team_goals = ds$away,
+    home_team_index = ds$home_team_index,
+    away_team_index = ds$away_team_index,
+    game_year = ds$year_index,
+    years = length(unique(ds$year)),
+    expected_home = ds$home_eg,
+    expected_away = ds$away_eg,
+    oos_n_games = nrow(oos_game_data),    
+    oos_game_data = oos_game_data, 
+    oos_home_team_index = oos_home_team_index,
+    oos_away_team_index = oos_away_team_index
+  )
+
+
+game_res <- stan(
+  "src/main/R/game_model.stan",
+  data = game_stan_data,
+  refresh = 10,
+  iter = 500,
+  chains = 4,   
+  control = list(
+    adapt_delta = 0.99,
+    max_treedepth = 16
+  )
 )
+
+team_strengths <- rstan::extract(game_res, "team_attack_strength")[[1]] 
+colMeans(team_strengths)
+team_def <- rstan::extract(game_res, "team_defense_strength")[[1]] 
+colMeans(team_def)
+home_team <- rstan::extract(game_res, "home_team_effect")[[1]] 
+
+
+
+
+means <- colMeans(player_lambdas)
+
+hist(player_lambdas
+
+# crap starts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# crap ends, actual code continues
+
+
 dir.create(paste0("r_models/", Sys.Date()))
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
