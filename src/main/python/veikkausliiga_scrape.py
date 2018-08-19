@@ -264,7 +264,7 @@ def write_events(season, driver, logger):
         first = False
 
 write_events(2018, driver, logger)
-#write_events(2017, driver, logger)
-#write_events(2016, driver, logger)
-#write_events(2015, driver, logger)
+write_events(2017, driver, logger)
+write_events(2016, driver, logger)
+write_events(2015, driver, logger)
 
