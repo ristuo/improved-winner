@@ -332,11 +332,11 @@ game_res <- stan(
   "src/main/R/game_model.stan",
   data = game_stan_data,
   refresh = 10,
-  iter = 500,
+  iter = 500, 
   chains = 4,   
   control = list(
-    adapt_delta = 0.99,
-    max_treedepth = 16
+    adapt_delta = 0.999,
+    max_treedepth = 20
   )
 )
 
