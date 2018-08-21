@@ -1,4 +1,5 @@
 library(data.table)
+library(elo)
 library(ggplot2)
 library(rstan)
 rstan_options(auto_write = TRUE)
@@ -262,13 +263,21 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-
+full_games <- results %>% inner_join(team_data, by = "game_id") %>%
+  mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
+elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
+all_elo_ranks <- as.data.frame(elos)
+final_elos <- final.elos(elos)
+oos_home_elo <- final_elos[oos$home] 
+oos_away_elo <- final_elos[oos$away]
 
 stan_data <- 
   list(
     n_games = nrow(game_data),
     n_col_games = 22,
     n_teams = length(team_index),
+    home_elo = all_elo_ranks$elo.A,
+    away_elo = all_elo_ranks$elo.B,
     game_data = game_data,
     home_team_goals = home_team_goals,
     away_team_goals = away_team_goals,
@@ -286,20 +295,22 @@ stan_data <-
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data, 
     oos_home_team_index = oos_home_team_index,
-    oos_away_team_index = oos_away_team_index
+    oos_away_team_index = oos_away_team_index,
+    oos_home_elo = oos_home_elo,
+    oos_away_elo = oos_away_elo
   )
 res <- 
   stan(  
-    "src/main/R/events/model.stan",
+    "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 15000,
+    iter = 10000,
     chains = 4,   
     control = list(
-      adapt_delta = 0.99,
-      max_treedepth = 16
+      adapt_delta = 0.8,
+      max_treedepth = 15
     )
-)
+  )
 dir.create(paste0("r_models/", Sys.Date()))
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
@@ -356,8 +367,13 @@ atl <- rstan::extract(res, "away_team_lambda")[[1]]
 
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
-x <- rstan::extract(res, "opportunity_strength_mu")[[1]]
+x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
+x <- rstan::extract(res, "elo_effect")[[1]]
+x <- rstan::extract(res, "beta")[[1]]
 x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+x <- rstan::extract(res, "team_scoring_strength")[[1]]
+x <- rstan::extract(res, "team_defensive_strength")[[1]]
 
 traceplot(res, pars = "opportunity_strength_sigma")
 traceplot(res, pars = "home_team_effect")
