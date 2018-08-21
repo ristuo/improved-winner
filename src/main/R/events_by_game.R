@@ -98,7 +98,7 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-08-01/", 2016:2018, ".csv")
+lineup_files <- paste0("data/lineups/2018-08-18/", 2016:2018, ".csv")
 raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
 missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
 lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
@@ -116,50 +116,29 @@ lineup_game <- lineups %>%
   ungroup %>%
   mutate(event_type = enc2utf8(event_type))
 
+n_game_per_player <- lineups %>%
+  group_by(player_id) %>%
+  summarize(games = n_distinct(game_id))
+
 oos <- data.frame(
   game_id = c(
-    970094, 
-    970095, 
-    970097, 
-    970098, 
-    970099, 
-    970100, 
-    970101, 
-    970102, 
+    970102,
     970103,
     970104,
-    970105,
-    1,
-    2
-),
+    970105
+  ),
   home = c(
-    "FC Honka", 
-    "VPS", 
-    "FC Lahti", 
-    "KuPS", 
-    "RoPS", 
-    "TPS", 
-    "FC Inter", 
     "HJK", 
-    "IFK Mariehamn", 
-    "FC Lahti", 
-    "SJK",
-    "HJK",
-    "KuPS"),
+    "IFK Mariehamn",
+    "FC Lahti",
+    "SJK"
+),
   away = c(
-    "TPS", 
-    "SJK", 
-    "FC Inter", 
-    "PS Kemi", 
-    "IFK Mariehamn", 
-    "VPS", 
-    "KuPS",
     "PS Kemi",
     "FC Honka",
     "RoPS",
-    "Ilves",
-    "KuPS",
-    "HJK"),
+    "Ilves"
+),
   stringsAsFactors = FALSE
 )
 games <- select(events, "game_id", "home_team", "away_team", "date") %>% unique %>%
@@ -198,7 +177,8 @@ oos_lineups <- missing %>% rowwise() %>%
 player_goals <- filter(event_game, game_id %in% lineup_game$game_id) %>%
   bind_rows(lineup_game) %>%
   group_by(player_id, event_type) %>%
-  summarize(goals = sum(score), n = sum(n), games = n_distinct(game_id))
+  summarize(goals = sum(score), n = sum(n)) %>%
+  inner_join(n_game_per_player, by = "player_id")
 
 shot_goals <- filter(player_goals, event_type == "Laukaus")
 other_goals <- filter(player_goals, event_type != "Laukaus") %>%
