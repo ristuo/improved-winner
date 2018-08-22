@@ -122,22 +122,28 @@ n_game_per_player <- lineups %>%
 
 oos <- data.frame(
   game_id = c(
-    970102,
-    970103,
-    970104,
-    970105
+    970109,
+    970107,
+    970110,
+    970108,
+    970111,
+    970064
   ),
   home = c(
-    "HJK", 
-    "IFK Mariehamn",
-    "FC Lahti",
-    "SJK"
+    "FC Honka", 
+    "FC Inter",
+    "Ilves",
+    "PS Kemi",
+    "KuPS",
+    "Ilves"
 ),
   away = c(
-    "PS Kemi",
-    "FC Honka",
+    "FC Lahti",
     "RoPS",
-    "Ilves"
+    "TPS",
+    "SJK",
+    "HJK",
+    "IFK Mariehamn"
 ),
   stringsAsFactors = FALSE
 )
@@ -246,8 +252,10 @@ oos_game_data <- make_game_data(oos_lineups) %>%
 full_games <- results %>% inner_join(team_data, by = "game_id") %>%
   mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
 elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
-all_elo_ranks <- as.data.frame(elos)
-final_elos <- final.elos(elos)
+all_elo_ranks <- as.data.frame(elos) 
+all_elo_ranks$elo.A %<>% {./100}
+all_elo_ranks$elo.B %<>% {./100}
+final_elos <- final.elos(elos) / 1000
 oos_home_elo <- final_elos[oos$home] 
 oos_away_elo <- final_elos[oos$away]
 
