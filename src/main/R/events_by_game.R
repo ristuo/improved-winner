@@ -135,7 +135,7 @@ oos <- data.frame(
     "Ilves",
     "PS Kemi",
     "KuPS",
-    "Ilves"
+    "VPS"
 ),
   away = c(
     "FC Lahti",
@@ -249,15 +249,21 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-full_games <- results %>% inner_join(team_data, by = "game_id") %>%
+f ull_games <- results %>% inner_join(team_data, by = "game_id") %>%
   mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
 elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
 all_elo_ranks <- as.data.frame(elos) 
 all_elo_ranks$elo.A %<>% {./100}
 all_elo_ranks$elo.B %<>% {./100}
-final_elos <- final.elos(elos) / 1000
-oos_home_elo <- final_elos[oos$home] 
-oos_away_elo <- final_elos[oos$away]
+home_elo_adv <- all_elo_ranks$elo.A - all_elo_ranks$elo.B
+away_elo_adv <- all_elo_ranks$elo.B - all_elo_ranks$elo.A
+home_elo_adv_sq <- sign(home_elo_adv) * (home_elo_adv ^ 2)
+away_elo_adv_sq <- sign(away_elo_adv) * (away_elo_adv ^ 2)
+final_elos <- final.elos(elos) / 100
+oos_home_elo_adv <- final_elos[oos$home] - final_elos[oos$away]
+oos_away_elo_adv <- final_elos[oos$away] - final_elos[oos$home]
+oos_home_elo_adv_sq <- sign(oos_home_elo_adv) * (oos_home_elo_adv ^ 2)
+oos_away_elo_adv_sq <- sign(oos_away_elo_adv) * (oos_away_elo_adv ^ 2)
 
 stan_data <- 
   list(
@@ -267,10 +273,16 @@ stan_data <-
     home_elo = all_elo_ranks$elo.A,
     away_elo = all_elo_ranks$elo.B,
     game_data = game_data,
+    away_elo_adv = away_elo_adv,
+    home_elo_adv = home_elo_adv, 
+    away_elo_adv_sq = away_elo_adv_sq,
+    home_elo_adv_sq = home_elo_adv_sq,
+    oos_away_elo_adv = oos_away_elo_adv,
+    oos_home_elo_adv = oos_home_elo_adv,
+    oos_away_elo_adv_sq = oos_away_elo_adv_sq,
+    oos_home_elo_adv_sq = oos_home_elo_adv_sq,
     home_team_goals = home_team_goals,
     away_team_goals = away_team_goals,
-    home_team_index = team_data$home_team_index,
-    away_team_index = team_data$away_team_index,
     shot_n_rows = nrow(shot_goals),
     shot_player_id_index = shot_goals$player_id_index,   
     shot_goals = shot_goals$goals,
@@ -283,10 +295,9 @@ stan_data <-
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data, 
     oos_home_team_index = oos_home_team_index,
-    oos_away_team_index = oos_away_team_index,
-    oos_home_elo = oos_home_elo,
-    oos_away_elo = oos_away_elo
+    oos_away_team_index = oos_away_team_index
   )
+
 res <- 
   stan(  
     "src/main/R/model.stan",
@@ -299,6 +310,7 @@ res <-
       max_treedepth = 15
     )
   )
+
 dir.create(paste0("r_models/", Sys.Date()))
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
@@ -357,8 +369,10 @@ x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "elo_effect")[[1]]
+x <- rstan::extract(res, "elo_sq_effect")[[1]]
 x <- rstan::extract(res, "beta")[[1]]
 x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+x <- rstan::extract(res, "home_team_effect")[[1]]
 x <- rstan::extract(res, "scoring_strength_mu")[[1]]
 x <- rstan::extract(res, "team_scoring_strength")[[1]]
 x <- rstan::extract(res, "team_defensive_strength")[[1]]
