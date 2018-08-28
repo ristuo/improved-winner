@@ -98,8 +98,9 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-08-18/", 2016:2018, ".csv")
-raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
+lineup_files <- paste0("data/lineups/2018-08-26/", 2016:2018, ".csv")
+raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
+  rbindlist(use.names = TRUE) %>% as.tbl
 missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
 lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
   filter(game_id %in% event_game$game_id)
@@ -122,28 +123,31 @@ n_game_per_player <- lineups %>%
 
 oos <- data.frame(
   game_id = c(
-    970109,
-    970107,
-    970110,
-    970108,
-    970111,
-    970064
+    970064,
+    970112,
+    970114,
+    970113,
+    970115,
+    970116,
+    970117
   ),
   home = c(
-    "FC Honka", 
-    "FC Inter",
     "Ilves",
-    "PS Kemi",
-    "KuPS",
-    "VPS"
-),
-  away = c(
     "FC Lahti",
     "RoPS",
     "TPS",
     "SJK",
     "HJK",
     "IFK Mariehamn"
+),
+  away = c(
+    "IFK Mariehamn",
+    "VPS", 
+    "FC Honka",
+    "PS Kemi", 
+    "KuPS",
+    "FC Inter",
+    "Ilves"
 ),
   stringsAsFactors = FALSE
 )
@@ -249,7 +253,7 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-f ull_games <- results %>% inner_join(team_data, by = "game_id") %>%
+full_games <- results %>% inner_join(team_data, by = "game_id") %>%
   mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
 elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
 all_elo_ranks <- as.data.frame(elos) 
@@ -312,18 +316,10 @@ res <-
   )
 
 dir.create(paste0("r_models/", Sys.Date()))
+pred_dir <- paste0("predictions/", Sys.Date())
+dir.create(pred_dir, recursive = TRUE)
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
-htp_goals <- rstan::extract(res, "home_team_post_goals")[[1]]
-atp_goals <- rstan::extract(res, "away_team_post_goals")[[1]]
-examples_path <- paste0("r_models/", Sys.Date(), "/examples")
-for (i in sample(1:nrow(results), 10)) {
-  game_id <- results$game_id[i]
-  results_table <- table(htp_goals[,i], atp_goals[,i]) / nrow(htp_goals)
-  write.table(as.matrix(res), paste0(examples_path, "/", game_id, ".csv"),
-              row.names = T, col.names = T, sep = ",")
-}
-
 more_goals_than <- function(goals_table, x = 2.5) {
   m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
   m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
@@ -334,6 +330,8 @@ more_goals_than <- function(goals_table, x = 2.5) {
 oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
 oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]
 for (i in 1:nrow(oos)) {
+  filename <- paste0(pred_dir, "/", oos$game_id[i], ".csv")
+  sink(filename)
   cat(paste(rep("-", 80), collapse = ""), "\n")
   goals_table <- table(oos_hg[,i], oos_ag[,i])
   cat(oos$home[i], "vs", oos$away[i], "\n")
@@ -349,6 +347,7 @@ for (i in 1:nrow(oos)) {
   print(round(probs,2))
   cat("Implied odds\n")
   print(round(1 / probs,2))
+  sink(NULL)
 }
 
 
