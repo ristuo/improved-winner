@@ -1,4 +1,5 @@
 library(data.table)
+library(elo)
 library(ggplot2)
 library(rstan)
 rstan_options(auto_write = TRUE)
@@ -97,8 +98,9 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-08-18/", 2016:2018, ".csv")
-raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% rbindlist %>% as.tbl
+lineup_files <- paste0("data/lineups/2018-08-26/", 2016:2018, ".csv")
+raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
+  rbindlist(use.names = TRUE) %>% as.tbl
 missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
 lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
   filter(game_id %in% event_game$game_id)
@@ -121,21 +123,30 @@ n_game_per_player <- lineups %>%
 
 oos <- data.frame(
   game_id = c(
-    970102,
-    970103,
-    970104,
-    970105
+    970064,
+    970112,
+    970114,
+    970113,
+    970115,
+    970116,
+    970117
   ),
   home = c(
-    "HJK", 
-    "IFK Mariehamn",
+    "Ilves",
     "FC Lahti",
-    "SJK"
+    "RoPS",
+    "TPS",
+    "SJK",
+    "HJK",
+    "IFK Mariehamn"
 ),
   away = c(
-    "PS Kemi",
+    "IFK Mariehamn",
+    "VPS", 
     "FC Honka",
-    "RoPS",
+    "PS Kemi", 
+    "KuPS",
+    "FC Inter",
     "Ilves"
 ),
   stringsAsFactors = FALSE
@@ -242,18 +253,40 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-
+full_games <- results %>% inner_join(team_data, by = "game_id") %>%
+  mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
+elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
+all_elo_ranks <- as.data.frame(elos) 
+all_elo_ranks$elo.A %<>% {./100}
+all_elo_ranks$elo.B %<>% {./100}
+home_elo_adv <- all_elo_ranks$elo.A - all_elo_ranks$elo.B
+away_elo_adv <- all_elo_ranks$elo.B - all_elo_ranks$elo.A
+home_elo_adv_sq <- sign(home_elo_adv) * (home_elo_adv ^ 2)
+away_elo_adv_sq <- sign(away_elo_adv) * (away_elo_adv ^ 2)
+final_elos <- final.elos(elos) / 100
+oos_home_elo_adv <- final_elos[oos$home] - final_elos[oos$away]
+oos_away_elo_adv <- final_elos[oos$away] - final_elos[oos$home]
+oos_home_elo_adv_sq <- sign(oos_home_elo_adv) * (oos_home_elo_adv ^ 2)
+oos_away_elo_adv_sq <- sign(oos_away_elo_adv) * (oos_away_elo_adv ^ 2)
 
 stan_data <- 
   list(
     n_games = nrow(game_data),
     n_col_games = 22,
     n_teams = length(team_index),
+    home_elo = all_elo_ranks$elo.A,
+    away_elo = all_elo_ranks$elo.B,
     game_data = game_data,
+    away_elo_adv = away_elo_adv,
+    home_elo_adv = home_elo_adv, 
+    away_elo_adv_sq = away_elo_adv_sq,
+    home_elo_adv_sq = home_elo_adv_sq,
+    oos_away_elo_adv = oos_away_elo_adv,
+    oos_home_elo_adv = oos_home_elo_adv,
+    oos_away_elo_adv_sq = oos_away_elo_adv_sq,
+    oos_home_elo_adv_sq = oos_home_elo_adv_sq,
     home_team_goals = home_team_goals,
     away_team_goals = away_team_goals,
-    home_team_index = team_data$home_team_index,
-    away_team_index = team_data$away_team_index,
     shot_n_rows = nrow(shot_goals),
     shot_player_id_index = shot_goals$player_id_index,   
     shot_goals = shot_goals$goals,
@@ -268,31 +301,25 @@ stan_data <-
     oos_home_team_index = oos_home_team_index,
     oos_away_team_index = oos_away_team_index
   )
+
 res <- 
   stan(  
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 15000,
+    iter = 10000,
     chains = 4,   
     control = list(
-      adapt_delta = 0.99,
-      max_treedepth = 16
+      adapt_delta = 0.8,
+      max_treedepth = 15
     )
-)
+  )
+
 dir.create(paste0("r_models/", Sys.Date()))
+pred_dir <- paste0("predictions/", Sys.Date())
+dir.create(pred_dir, recursive = TRUE)
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
-htp_goals <- rstan::extract(res, "home_team_post_goals")[[1]]
-atp_goals <- rstan::extract(res, "away_team_post_goals")[[1]]
-examples_path <- paste0("r_models/", Sys.Date(), "/examples")
-for (i in sample(1:nrow(results), 10)) {
-  game_id <- results$game_id[i]
-  results_table <- table(htp_goals[,i], atp_goals[,i]) / nrow(htp_goals)
-  write.table(as.matrix(res), paste0(examples_path, "/", game_id, ".csv"),
-              row.names = T, col.names = T, sep = ",")
-}
-
 more_goals_than <- function(goals_table, x = 2.5) {
   m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
   m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
@@ -303,6 +330,8 @@ more_goals_than <- function(goals_table, x = 2.5) {
 oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
 oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]
 for (i in 1:nrow(oos)) {
+  filename <- paste0(pred_dir, "/", oos$game_id[i], ".csv")
+  sink(filename)
   cat(paste(rep("-", 80), collapse = ""), "\n")
   goals_table <- table(oos_hg[,i], oos_ag[,i])
   cat(oos$home[i], "vs", oos$away[i], "\n")
@@ -318,6 +347,7 @@ for (i in 1:nrow(oos)) {
   print(round(probs,2))
   cat("Implied odds\n")
   print(round(1 / probs,2))
+  sink(NULL)
 }
 
 
@@ -336,8 +366,15 @@ atl <- rstan::extract(res, "away_team_lambda")[[1]]
 
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
-x <- rstan::extract(res, "opportunity_strength_mu")[[1]]
+x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
+x <- rstan::extract(res, "elo_effect")[[1]]
+x <- rstan::extract(res, "elo_sq_effect")[[1]]
+x <- rstan::extract(res, "beta")[[1]]
 x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+x <- rstan::extract(res, "home_team_effect")[[1]]
+x <- rstan::extract(res, "scoring_strength_mu")[[1]]
+x <- rstan::extract(res, "team_scoring_strength")[[1]]
+x <- rstan::extract(res, "team_defensive_strength")[[1]]
 
 traceplot(res, pars = "opportunity_strength_sigma")
 traceplot(res, pars = "home_team_effect")
