@@ -98,7 +98,7 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-08-26/", 2016:2018, ".csv")
+lineup_files <- paste0("data/lineups/2018-09-03/", 2016:2018, ".csv")
 raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
   rbindlist(use.names = TRUE) %>% as.tbl
 missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
@@ -121,36 +121,11 @@ n_game_per_player <- lineups %>%
   group_by(player_id) %>%
   summarize(games = n_distinct(game_id))
 
-oos <- data.frame(
-  game_id = c(
-    970064,
-    970112,
-    970114,
-    970113,
-    970115,
-    970116,
-    970117
-  ),
-  home = c(
-    "Ilves",
-    "FC Lahti",
-    "RoPS",
-    "TPS",
-    "SJK",
-    "HJK",
-    "IFK Mariehamn"
-),
-  away = c(
-    "IFK Mariehamn",
-    "VPS", 
-    "FC Honka",
-    "PS Kemi", 
-    "KuPS",
-    "FC Inter",
-    "Ilves"
-),
-  stringsAsFactors = FALSE
-)
+oos <- fread("data/oos/oos_05-09.csv", sep = ",", col.names = "game") %>% as.tbl 
+oos$home <- unlist(lapply(X = str_split(oos$game, " - "), FUN = function(d) {d[1]}))
+oos$away <- unlist(lapply(X = str_split(oos$game, " - "), FUN = function(d) {d[2]}))
+oos <- select(oos, -game)
+oos$game_id <- 1:nrow(oos)
 games <- select(events, "game_id", "home_team", "away_team", "date") %>% unique %>%
   mutate(date = as.Date(date, "%d.%m.%Y")) %>%
   filter(game_id %in% raw_lineups$game_id)
@@ -298,8 +273,6 @@ stan_data <-
     other_n_rows = nrow(other_goals),
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data, 
-    oos_home_team_index = oos_home_team_index,
-    oos_away_team_index = oos_away_team_index
   )
 
 res <- 
@@ -307,7 +280,7 @@ res <-
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 10000,
+    iter = 20000,
     chains = 4,   
     control = list(
       adapt_delta = 0.8,
@@ -326,6 +299,32 @@ more_goals_than <- function(goals_table, x = 2.5) {
   mat <- m1 + m2
   sum(goals_table[mat > x])/sum(goals_table)
 }
+
+ht_lambda <- rstan::extract(res, "home_team_lambda")[[1]] %>% colMeans
+at_lambda <- rstan::extract(res, "away_team_lambda")[[1]] %>% colMeans
+#oos_ht_lambda <- rstan::extract(res, "oos_home_team_lambda")[[1]] %>% colMeans
+#oos_at_lambda <- rstan::extract(res, "oos_away_team_lambda")[[1]] %>% colMeans
+ml_dataset <- data.frame(
+  ht_lambda = ht_lambda,
+  at_lambda = at_lambda,
+  ht_elo_adv = home_elo_adv,
+  at_elo_adv = away_elo_adv,
+  game_id = results$game_id
+)
+ml_dataset %<>% inner_join(full_games, by = "game_id")
+write.table(ml_dataset, "ml_dataset.csv", sep = ",", col.names = T, row.names = F)
+
+home_post <- rstan::extract(res, "home_team_post_goals")[[1]] 
+results$row <- 1:nrow(results)
+true_goals <- results[,c("row", "home")]
+hx <- melt(home_post) %>% inner_join(true_goals, by = c(Var2 = "row"))
+away_post <- rstan::extract(res, "away_team_post_goals")[[1]]
+results$hp <- home_post
+results$ap <- away_post
+plottable <- results
+par(mfrow = c(1,2))
+plot(plottable$home, plottable$hp)
+plot(plottable$away, plottable$ap)
 
 oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
 oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]

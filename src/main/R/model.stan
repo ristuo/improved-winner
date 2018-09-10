@@ -43,8 +43,6 @@ data {
 
   int<lower=0> oos_n_games;
   int oos_game_data[oos_n_games, n_col_games];
-  int<lower=0> oos_home_team_index[oos_n_games];
-  int<lower=0> oos_away_team_index[oos_n_games];
 
   vector[oos_n_games] oos_away_elo_adv;
   vector[oos_n_games] oos_home_elo_adv;
@@ -147,8 +145,8 @@ model {
 generated quantities {
   int home_team_post_goals[n_games];
   int away_team_post_goals[n_games];
-  real oos_home_team_lambda;
-  real oos_away_team_lambda;
+  vector[oos_n_games] oos_home_team_lambdas;
+  vector[oos_n_games] oos_away_team_lambda;
   int oos_home_team_goals[oos_n_games];
   int oos_away_team_goals[oos_n_games];
   real default_opportunity_lambda;
@@ -184,7 +182,7 @@ generated quantities {
     default_opportunity_lambda = exp(normal_rng(opportunity_strength_mu, opportunity_strength_sigma));
     default_scoring_p = inv_logit(normal_rng(scoring_strength_mu, scoring_strength_sigma));
     default_other_p = inv_logit(normal_rng(other_strength_mu, other_strength_sigma));
-    oos_home_team_lambda = compute_team_lambda(
+    oos_home_team_lambda[i] = compute_team_lambda(
       i, 
       opportunity_lambda, 
       oos_game_data,
@@ -194,7 +192,7 @@ generated quantities {
       n_col_games/2,
       default_opportunity_lambda * default_scoring_p + default_other_p
     );
-    oos_away_team_lambda = compute_team_lambda(
+    oos_away_team_lambda[i] = compute_team_lambda(
       i, 
       opportunity_lambda, 
       oos_game_data,
@@ -206,7 +204,7 @@ generated quantities {
     );
     oos_lambda = exp(
       home_team_effect +
-      beta * oos_home_team_lambda +
+      beta * oos_home_team_lambda[i] +
       elo_effect * oos_home_elo_adv[i] + 
       elo_sq_effect * oos_home_elo_adv_sq[i]
     );
@@ -218,7 +216,7 @@ generated quantities {
     oos_lambda = exp(
       elo_effect * oos_away_elo_adv[i] + 
       elo_sq_effect * oos_away_elo_adv_sq[i] +
-      beta * oos_away_team_lambda
+      beta * oos_away_team_lambda[i]
     );
     if (oos_lambda < 500) {
       oos_away_team_goals[i] = poisson_rng(oos_lambda);
