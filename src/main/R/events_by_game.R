@@ -12,8 +12,43 @@ options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
-plot_trace <- function(res, variable, which_to_plot) { traceplot(res, paste0(variable, "[", which_to_plot, "]"))
+
+bnb_prob_term <- function(y, mu, a_inv) {
+	a_inv_mu <- a_inv * mu;
+	return(lgamma(y + a_inv_mu) - lgamma(y + 1) - 
+		lgamma(a_inv_mu) - y * log1p(a_inv) + 
+		a_inv_mu * (log(a_inv) - log1p(a_inv))
+	)
 }
+
+bnb_final_term <- function(y1, y2, phi, mu1, mu2, a_inv1, a_inv2) {
+	theta1 <- 1.0 / (a_inv1 + 1)
+	theta2 <- 1.0 / (a_inv2 + 1)
+	c1 <- as.numeric(((1.0 - theta1) / (1 - theta1 * exp(-1))) ^ (a_inv1 * mu1))
+	c2 <- as.numeric(((1.0 - theta2) / (1 - theta2 * exp(-1))) ^ (a_inv2 * mu2))
+	res <- phi * (exp(-y1) - c1) * (exp(-y2) - c2)
+	if (res > -1) {
+		return(log1p(res))
+	} else {
+		return(NA)
+	}
+}
+
+bnb_prob <- function(y1, y2, phi, mu1, mu2, a_inv1, a_inv2) {
+	final_term <- bnb_final_term(y1, y2, phi, mu1, mu2, a_inv1, a_inv2)
+	exp(bnb_prob_term(y1, mu1, a_inv1) + bnb_prob_term(y2, mu2, a_inv2) + final_term)
+}
+
+bnb_sample <- function(mu, a, phi, max_goals = 10) {
+	res <- matrix(nrow=max_goals, ncol = max_goals)
+	for (i in 1:max_goals) {
+		for (j in 1:max_goals) {
+			res[i,j] <- as.numeric(bnb_prob(i - 1,j - 1,phi,mu[1],mu[2],1/a[1],1/a[2]))
+		}
+	}
+	res
+}
+
 make_game_data <- function(lineups) {
   res <- lineups %>%
     group_by(game_id) %>%
@@ -244,6 +279,10 @@ oos_away_elo_adv <- final_elos[oos$away] - final_elos[oos$home]
 oos_home_elo_adv_sq <- sign(oos_home_elo_adv) * (oos_home_elo_adv ^ 2)
 oos_away_elo_adv_sq <- sign(oos_away_elo_adv) * (oos_away_elo_adv ^ 2)
 
+
+full_games$home_team_index %<>% factor
+full_games$away_team_index %<>% factor
+
 stan_data <- 
   list(
     n_games = nrow(game_data),
@@ -260,8 +299,7 @@ stan_data <-
     oos_home_elo_adv = oos_home_elo_adv,
     oos_away_elo_adv_sq = oos_away_elo_adv_sq,
     oos_home_elo_adv_sq = oos_home_elo_adv_sq,
-    home_team_goals = home_team_goals,
-    away_team_goals = away_team_goals,
+    Y = cbind(home_team_goals, away_team_goals),
     shot_n_rows = nrow(shot_goals),
     shot_player_id_index = shot_goals$player_id_index,   
     shot_goals = shot_goals$goals,
@@ -272,7 +310,10 @@ stan_data <-
     other_games = other_goals$games,
     other_n_rows = nrow(other_goals),
     oos_n_games = nrow(oos_game_data),    
-    oos_game_data = oos_game_data, 
+    oos_game_data = oos_game_data,
+    home_teams = model.matrix(~home_team_index, full_games)[,-1],
+    away_teams = model.matrix(~away_team_index, full_games)[,-1],
+    n_team_col = length(unique(full_games$home_team_index)) - 1
   )
 
 res <- 
@@ -280,19 +321,80 @@ res <-
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 20000,
+    iter = 2000,
     chains = 4,   
     control = list(
       adapt_delta = 0.8,
       max_treedepth = 15
     )
   )
-
 dir.create(paste0("r_models/", Sys.Date()))
 pred_dir <- paste0("predictions/", Sys.Date())
 dir.create(pred_dir, recursive = TRUE)
 path <- paste0("r_models/", Sys.Date(), "/model.rds")
 save(res, file = path)
+
+sampled_values <- rstan::extract(res, c("oos_home_mu", "oos_away_mu","a","phi"))
+mus <- rstan::extract(res, "mu")[[1]]
+home_mus <- sampled_values$oos_home_mu
+away_mus <- sampled_values$oos_away_mu
+a <- sampled_values$a
+phi <- sampled_values$phi
+indices <- sample(1:nrow(a), 200)
+phi_data <- phi[indices]
+a_data <- a[indices,]
+
+find_probs <- function(home_mus, away_mus, i, phi_data, a_data, indices) {
+	mu_data <- data.frame(
+		home = home_mus[,i],
+		away = away_mus[,i]
+	)[indices,]
+	res <- matrix(rep(0, 10 * 10), ncol=10, nrow=10)
+	k <- 0
+	for (j in 1:nrow(mu_data)) {
+		new_res <- bnb_sample(mu_data[j,], a_data[j,], phi_data[j])
+		if (sum(is.na(new_res)) == 0) {
+			res <- res + new_res
+			k <- k + 1
+		}
+	}
+	res <- res / k
+	res
+}
+
+for (i in 1:ncol(home_mus)) {
+	probability_mat <- find_probs(home_mus, away_mus, i, phi_data, a_data, indices)
+	away_win <- sum(probability_mat[upper.tri(probability_mat)])
+	draw <- sum(diag(probability_mat))
+	home_win <- sum(probability_mat[lower.tri(probability_mat)])
+	home <- oos[i,]$home
+	away <- oos[i,]$away
+	filename <- paste0(pred_dir, "/", gsub(" ", "_", home), "-", gsub(" ", "_", away), ".csv")
+  sink(filename)
+  cat(paste(rep("-", 80), collapse = ""), "\n")
+  cat(home, "vs", away, "\n")
+  cat("Goals:\n")
+  print(round(res, 3))
+  cat("P(#Goals > 2.5) = ", more_goals_than(probability_mat),"\n", sep = "")
+  probs <- c("1" = home_win, "x" = draw, "2" = away_win)
+  cat("Probs:\n")
+  print(round(probs,2))
+  cat("Implied odds\n")
+  print(round(1 / probs,2))
+  sink(NULL)
+}
+
+
+
+
+mus <- mu_data[sample(1:nrow(mu_data), 100),]
+apply(mus,1,function(d) {
+		
+})
+
+predictions <- rstan::extract(res, "oos_result")[[1]]
+
+
 more_goals_than <- function(goals_table, x = 2.5) {
   m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
   m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
@@ -302,17 +404,6 @@ more_goals_than <- function(goals_table, x = 2.5) {
 
 ht_lambda <- rstan::extract(res, "home_team_lambda")[[1]] %>% colMeans
 at_lambda <- rstan::extract(res, "away_team_lambda")[[1]] %>% colMeans
-#oos_ht_lambda <- rstan::extract(res, "oos_home_team_lambda")[[1]] %>% colMeans
-#oos_at_lambda <- rstan::extract(res, "oos_away_team_lambda")[[1]] %>% colMeans
-ml_dataset <- data.frame(
-  ht_lambda = ht_lambda,
-  at_lambda = at_lambda,
-  ht_elo_adv = home_elo_adv,
-  at_elo_adv = away_elo_adv,
-  game_id = results$game_id
-)
-ml_dataset %<>% inner_join(full_games, by = "game_id")
-write.table(ml_dataset, "ml_dataset.csv", sep = ",", col.names = T, row.names = F)
 
 home_post <- rstan::extract(res, "home_team_post_goals")[[1]] 
 results$row <- 1:nrow(results)
@@ -332,12 +423,10 @@ for (i in 1:nrow(oos)) {
   filename <- paste0(pred_dir, "/", oos$game_id[i], ".csv")
   sink(filename)
   cat(paste(rep("-", 80), collapse = ""), "\n")
-  goals_table <- table(oos_hg[,i], oos_ag[,i])
   cat(oos$home[i], "vs", oos$away[i], "\n")
   cat("Goals:\n")
   print(goals_table)
   cat("P(#Goals > 2.5) = ", more_goals_than(goals_table),"\n", sep = "")
-  total <- nrow(oos_hg)
   home_win <- sum(goals_table[lower.tri(goals_table)])
   away_win <- sum(goals_table[upper.tri(goals_table)])
   draw <- sum(diag(goals_table))
