@@ -13,6 +13,25 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
 
+load_games <- function(date_string) {
+  ds <- fread(paste0("data/games/", date_string, "/games.csv")) %>% as.tbl
+  ds$home <- as.numeric(str_extract(ds$Tulos, "^[0-9]{1,2}"))
+  ds$away <- as.numeric(str_extract(ds$Tulos, "[0-9]{1,2}$"))
+  ds$date <- str_extract(ds$Pvm, "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{4}$") %>% 
+    as.Date("%d.%m.%Y")
+  for (i in 2:nrow(ds)) {
+    if (is.na(ds$date[i])) {
+      ds$date[i] = ds$date[i - 1]
+    }
+  }
+  ds$home_team <- str_extract(ds$Ottelu, "(^.*) -") %>% gsub(" -", "", .)
+  ds$away_team <- str_extract(ds$Ottelu, "- .*$") %>% gsub("- ", "", .)
+  select(ds, "home", "away", "home_team", "away_team", "date", "game_id")
+}
+
+full_games <- load_games("2018-09-15")
+
+
 bnb_prob_term <- function(y, mu, a_inv) {
 	a_inv_mu <- a_inv * mu;
 	return(lgamma(y + a_inv_mu) - lgamma(y + 1) - 
@@ -234,15 +253,11 @@ tmp_df <- tmp$df
 tmp <- set_index(tmp_df, "away_team", team_index)
 team_data <- tmp$df
 
-results <- events %>%
-  filter(event_type == "Maali") %>%
-  mutate(team = gsub("\\(|\\)","",team)) %>%
-  mutate(home = ifelse(home_team == team, "home", "away")) %>%
-  group_by(game_id, team, home) %>%
-  summarize(goals = n()) %>%
-  ungroup  %>% 
-  dcast(game_id ~ home, fill = 0)
+full_games <- team_data %>%
+  select(game_id, home_team_index, away_team_index) %>%
+  inner_join(full_games, by = "game_id")
 
+results <- full_games %>% select(game_id, home, away)
 
 results %<>% filter(game_id %in% game_data$game_id) %>% 
   arrange(game_id) 
@@ -263,8 +278,13 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
-full_games <- results %>% inner_join(team_data, by = "game_id") %>%
+game_dates <- select(events, game_id, date) %>%
+  unique %>%
+  mutate(date = as.Date(date, "%d.%m.%Y"))
+
+full_games <- full_games %>%
   mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
+
 elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
 all_elo_ranks <- as.data.frame(elos) 
 all_elo_ranks$elo.A %<>% {./100}
@@ -324,10 +344,11 @@ res <-
     iter = 2000,
     chains = 4,   
     control = list(
-      adapt_delta = 0.8,
+      adapt_delta = 0.99,
       max_treedepth = 15
     )
   )
+
 dir.create(paste0("r_models/", Sys.Date()))
 pred_dir <- paste0("predictions/", Sys.Date())
 dir.create(pred_dir, recursive = TRUE)
@@ -362,6 +383,15 @@ find_probs <- function(home_mus, away_mus, i, phi_data, a_data, indices) {
 	res
 }
 
+more_goals_than <- function(goals_table, x = 2.5) {
+  m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
+  m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
+  mat <- m1 + m2
+  sum(goals_table[mat > x])/sum(goals_table)
+}
+
+
+
 for (i in 1:ncol(home_mus)) {
 	probability_mat <- find_probs(home_mus, away_mus, i, phi_data, a_data, indices)
 	away_win <- sum(probability_mat[upper.tri(probability_mat)])
@@ -374,7 +404,7 @@ for (i in 1:ncol(home_mus)) {
   cat(paste(rep("-", 80), collapse = ""), "\n")
   cat(home, "vs", away, "\n")
   cat("Goals:\n")
-  print(round(res, 3))
+  print(round(probability_mat, 3))
   cat("P(#Goals > 2.5) = ", more_goals_than(probability_mat),"\n", sep = "")
   probs <- c("1" = home_win, "x" = draw, "2" = away_win)
   cat("Probs:\n")
@@ -394,13 +424,6 @@ apply(mus,1,function(d) {
 
 predictions <- rstan::extract(res, "oos_result")[[1]]
 
-
-more_goals_than <- function(goals_table, x = 2.5) {
-  m1 <- matrix(rep(0:(nrow(goals_table) - 1), ncol(goals_table)), byrow = FALSE, ncol = ncol(goals_table))
-  m2 <- matrix(rep(0:(ncol(goals_table) - 1), nrow(goals_table)), byrow = TRUE, ncol = ncol(goals_table))
-  mat <- m1 + m2
-  sum(goals_table[mat > x])/sum(goals_table)
-}
 
 ht_lambda <- rstan::extract(res, "home_team_lambda")[[1]] %>% colMeans
 at_lambda <- rstan::extract(res, "away_team_lambda")[[1]] %>% colMeans

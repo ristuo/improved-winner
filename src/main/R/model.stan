@@ -178,7 +178,7 @@ transformed parameters {
   for (i in 1:n_games) {
     mu[i][1] = exp(
       home_mean +
-      elo_effect *  home_elo_adv[i] +
+      elo_effect * home_elo_adv[i] +
       elo_sq_effect * home_elo_adv_sq[i] +
       beta * home_team_lambda[i]
     );
