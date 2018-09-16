@@ -120,13 +120,15 @@ parameters {
   vector[shot_n_rows] raw_scoring_strength;  
   vector[shot_n_rows] raw_opportunity_strength;
   vector[other_n_rows] raw_other_strength;
-  real elo_effect;
-  real elo_sq_effect;
+  real home_elo_effect;
+  real home_elo_sq_effect;
+  real away_elo_effect;
+  real away_elo_sq_effect;
   real beta;
   vector<lower=0>[2] a;
   real phi;
   real home_mean;
-  real away_mean;
+  real general_mean;
 }
 
 transformed parameters {
@@ -178,24 +180,25 @@ transformed parameters {
   for (i in 1:n_games) {
     mu[i][1] = exp(
       home_mean +
-      elo_effect * home_elo_adv[i] +
-      elo_sq_effect * home_elo_adv_sq[i] +
+      home_elo_effect * home_elo_adv[i] +
+      home_elo_sq_effect * home_elo_adv_sq[i] +
       beta * home_team_lambda[i]
     );
     mu[i][2] = exp(
-      away_mean +
-      elo_effect * away_elo_adv[i] +
-      elo_sq_effect * away_elo_adv_sq[i] +
+      general_mean +
+      away_elo_effect * home_elo_adv[i] +
+      away_elo_sq_effect * home_elo_adv_sq[i] +
       beta * away_team_lambda[i]
     );
   }
-  a_inv[1] = 1.0 / a[1];
-  a_inv[2] = 1.0 / a[2];
+  for (i in 1:2) {
+    a_inv[i] = 1.0 / a[i];
+  }
 }
 
 model {
   home_mean ~ normal(0,5);
-  away_mean ~ normal(0,5);
+  general_mean ~ normal(0,5);
   phi ~ normal(0, 8);
   a[1] ~ lognormal(0.1, 0.4);
   a[2] ~ lognormal(0.1, 0.4);
@@ -211,9 +214,11 @@ model {
   shot_n ~ poisson(shot_games[shot_player_id_index] .* opportunity_lambda);
   shot_goals ~ binomial(shot_n, p);
   other_goals ~ binomial(other_games, other_p);
-  elo_effect ~ normal(0,10);
-  elo_sq_effect ~ normal(0,10);
-  beta ~ normal(0, 1);
+  home_elo_effect ~ normal(0,10);
+  home_elo_sq_effect ~ normal(0,10);
+  away_elo_effect ~ normal(0,10);
+  away_elo_sq_effect ~ normal(0,10);
+  beta ~ normal(0, 5);
   target += bnb_cost(Y, phi, mu, a_inv, n_games);
 }
 
@@ -251,15 +256,16 @@ generated quantities {
     );
     oos_home_mu[i] = exp(
       home_mean +
+      general_mean + 
       beta * oos_home_team_lambda[i] +
-      elo_effect * oos_home_elo_adv[i] + 
-      elo_sq_effect * oos_home_elo_adv_sq[i]
+      home_elo_effect * oos_home_elo_adv[i] + 
+      home_elo_sq_effect * oos_home_elo_adv_sq[i]
     );
     oos_away_mu[i] = exp(
-			away_mean +
-      elo_effect * oos_away_elo_adv[i] + 
-      elo_sq_effect * oos_away_elo_adv_sq[i] +
-      beta * oos_away_team_lambda[i]
+			general_mean +
+      beta * oos_away_team_lambda[i] +
+      away_elo_effect * oos_home_elo_adv[i] + 
+      away_elo_sq_effect * oos_home_elo_adv_sq[i]
     );
 	}
 }

@@ -12,7 +12,6 @@ options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
-
 load_games <- function(date_string) {
   ds <- fread(paste0("data/games/", date_string, "/games.csv")) %>% as.tbl
   ds$home <- as.numeric(str_extract(ds$Tulos, "^[0-9]{1,2}"))
@@ -26,6 +25,7 @@ load_games <- function(date_string) {
   }
   ds$home_team <- str_extract(ds$Ottelu, "(^.*) -") %>% gsub(" -", "", .)
   ds$away_team <- str_extract(ds$Ottelu, "- .*$") %>% gsub("- ", "", .)
+  ds <- ds[complete.cases(ds),]
   select(ds, "home", "away", "home_team", "away_team", "date", "game_id")
 }
 
@@ -152,12 +152,13 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-09-03/", 2016:2018, ".csv")
+lineup_files <- paste0("data/lineups/2018-09-15/", 2016:2018, ".csv")
 raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
-  rbindlist(use.names = TRUE) %>% as.tbl
-missing_lineups <- raw_lineups %>% group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
+  rbindlist(use.names = TRUE) %>% as.tbl 
+missing_lineups <- raw_lineups %>% 
+  group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
 lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
-  filter(game_id %in% event_game$game_id)
+  filter(game_id %in% event_game$game_id) 
 lineup_game <- lineups %>%
   rowwise() %>%
   do((function(df) {
@@ -193,6 +194,8 @@ find_most_recent_game <- function(games, team) {
     team_type_in_game = ifelse(is_home, "home", "away")
   )
 }
+
+
 find_most_recent_lineup <- function(raw_lineups, games, team, team_type, game_id) {
   recent <- find_most_recent_game(games, team)
   recent_game_id <- recent$game_id
@@ -213,17 +216,6 @@ oos_lineups <- missing %>% rowwise() %>%
     bind_rows(home_res, away_res)
   })(.)) %>% bind_rows(oos_known_lineups)
 
-player_goals <- filter(event_game, game_id %in% lineup_game$game_id) %>%
-  bind_rows(lineup_game) %>%
-  group_by(player_id, event_type) %>%
-  summarize(goals = sum(score), n = sum(n)) %>%
-  inner_join(n_game_per_player, by = "player_id")
-
-shot_goals <- filter(player_goals, event_type == "Laukaus")
-other_goals <- filter(player_goals, event_type != "Laukaus") %>%
-  group_by(player_id) %>%
-  summarize(goals = sum(goals), games = sum(games))
-
 set_index <- function(df, variable, indices = c()) {
   df <- as.data.frame(df)
   values <- unique(df[,variable])
@@ -235,6 +227,16 @@ set_index <- function(df, variable, indices = c()) {
   list(df = as.tbl(df), indices = indices)
 }
 
+player_goals <- filter(event_game, game_id %in% lineup_game$game_id) %>%
+  bind_rows(lineup_game) %>%
+  group_by(player_id, event_type) %>%
+  summarize(goals = sum(score), n = sum(n)) %>%
+  inner_join(n_game_per_player, by = "player_id")
+
+shot_goals <- filter(player_goals, event_type == "Laukaus")
+other_goals <- filter(player_goals, event_type != "Laukaus") %>%
+  group_by(player_id) %>%
+  summarize(goals = sum(goals), games = sum(games))
 shot_goals %<>% filter(player_id %in% other_goals$player_id)
 other_goals %<>% filter(player_id %in% shot_goals$player_id)
 shot_index <- set_index(shot_goals, "player_id")
@@ -243,52 +245,32 @@ player_index <- shot_index$indices
 other_goals <- set_index(other_goals, c("player_id"), indices = player_index)[[1]]
 
 
-game_data <- make_game_data(lineups)
+
+
+
+
+
 
 teams <- unique(events$home_team)
 team_index <- 1:length(teams) %>% setNames(teams)
-home_teams <- events %>% select(game_id, home_team, away_team) %>% unique
-tmp <- set_index(home_teams, "home_team", team_index)
-tmp_df <- tmp$df
-tmp <- set_index(tmp_df, "away_team", team_index)
-team_data <- tmp$df
-
-full_games <- team_data %>%
-  select(game_id, home_team_index, away_team_index) %>%
-  inner_join(full_games, by = "game_id")
-
-results <- full_games %>% select(game_id, home, away)
-
-results %<>% filter(game_id %in% game_data$game_id) %>% 
-  arrange(game_id) 
-home_team_goals <- results$home
-away_team_goals <- results$away
-game_data %<>% filter(game_id %in% results$game_id) %>% 
-  arrange(game_id) %>%
-  ungroup %>%
-  select(-game_id) %>%
-  as.matrix
-
-team_data %<>% filter(game_id %in% results$game_id) %>% arrange(game_id)
-oos_home_team_index <- setNames(team_index[oos$home], NULL)
-oos_away_team_index <- setNames(team_index[oos$away], NULL)
-oos_game_data <- make_game_data(oos_lineups) %>%
-  arrange(game_id) %>%
-  ungroup %>%
-  select(-game_id) %>%
-  as.matrix
-
-game_dates <- select(events, game_id, date) %>%
-  unique %>%
-  mutate(date = as.Date(date, "%d.%m.%Y"))
-
+full_games %<>% filter(game_id %in% unique(lineups$game_id))
+tmp <- set_index(full_games, "home_team", team_index)
+tmp <- set_index(tmp$df, "away_team", team_index)
+full_games <- tmp$df
+full_games$home_team_index %<>% factor
+full_games$away_team_index %<>% factor
 full_games <- full_games %>%
   mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
 
-elos <- elo.run(home_won ~ home_team + away_team, data = full_games, k = 22)
+
+full_games_by_date <- arrange(full_games, date)
+elos <- elo.run(home_won ~ home_team + away_team, data = full_games_by_date, k = 22)
 all_elo_ranks <- as.data.frame(elos) 
+all_elo_ranks$game_id <- full_games_by_date$game_id
 all_elo_ranks$elo.A %<>% {./100}
 all_elo_ranks$elo.B %<>% {./100}
+all_elo_ranks <- all_elo_ranks[sapply(full_games$game_id, function(d) which(all_elo_ranks$game_id == d)),]
+
 home_elo_adv <- all_elo_ranks$elo.A - all_elo_ranks$elo.B
 away_elo_adv <- all_elo_ranks$elo.B - all_elo_ranks$elo.A
 home_elo_adv_sq <- sign(home_elo_adv) * (home_elo_adv ^ 2)
@@ -299,10 +281,19 @@ oos_away_elo_adv <- final_elos[oos$away] - final_elos[oos$home]
 oos_home_elo_adv_sq <- sign(oos_home_elo_adv) * (oos_home_elo_adv ^ 2)
 oos_away_elo_adv_sq <- sign(oos_away_elo_adv) * (oos_away_elo_adv ^ 2)
 
+game_data <- make_game_data(lineups)
+game_data <- as.data.frame(game_data)
+game_data <- game_data[sapply(full_games$game_id, function(d) which(game_data$game_id == d)),]
 
-full_games$home_team_index %<>% factor
-full_games$away_team_index %<>% factor
+oos_home_team_index <- setNames(team_index[oos$home], NULL)
+oos_away_team_index <- setNames(team_index[oos$away], NULL)
+oos_game_data <- make_game_data(oos_lineups) %>%
+  arrange(game_id) %>%
+  ungroup %>%
+  select(-game_id) %>%
+  as.matrix
 
+stan_game_data <- game_data[,2:ncol(game_data)] %>% as.matrix
 stan_data <- 
   list(
     n_games = nrow(game_data),
@@ -310,7 +301,7 @@ stan_data <-
     n_teams = length(team_index),
     home_elo = all_elo_ranks$elo.A,
     away_elo = all_elo_ranks$elo.B,
-    game_data = game_data,
+    game_data = stan_game_data,
     away_elo_adv = away_elo_adv,
     home_elo_adv = home_elo_adv, 
     away_elo_adv_sq = away_elo_adv_sq,
@@ -319,7 +310,7 @@ stan_data <-
     oos_home_elo_adv = oos_home_elo_adv,
     oos_away_elo_adv_sq = oos_away_elo_adv_sq,
     oos_home_elo_adv_sq = oos_home_elo_adv_sq,
-    Y = cbind(home_team_goals, away_team_goals),
+    Y = cbind(full_games$home, full_games$away),
     shot_n_rows = nrow(shot_goals),
     shot_player_id_index = shot_goals$player_id_index,   
     shot_goals = shot_goals$goals,
@@ -341,7 +332,7 @@ res <-
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 2000,
+    iter = 20000,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
@@ -364,6 +355,17 @@ phi <- sampled_values$phi
 indices <- sample(1:nrow(a), 200)
 phi_data <- phi[indices]
 a_data <- a[indices,]
+
+oos_home_l <- rstan::extract(res, "oos_home_team_lambda")[[1]]
+oos_away_l <- rstan::extract(res, "oos_away_team_lambda")[[1]]
+home_l <- rstan::extract(res, "home_team_lambda")[[1]]
+away_l <- rstan::extract(res, "away_team_lambda")[[1]]
+
+betas <- rstan::extract(res, "beta")[[1]]
+
+elo_effect <- rstan::extract(res, "elo_effect")[[1]]
+elo_sq_effect <- rstan::extract(res, "home_elo_sq_effect")[[1]]
+
 
 find_probs <- function(home_mus, away_mus, i, phi_data, a_data, indices) {
 	mu_data <- data.frame(
@@ -389,8 +391,6 @@ more_goals_than <- function(goals_table, x = 2.5) {
   mat <- m1 + m2
   sum(goals_table[mat > x])/sum(goals_table)
 }
-
-
 
 for (i in 1:ncol(home_mus)) {
 	probability_mat <- find_probs(home_mus, away_mus, i, phi_data, a_data, indices)
@@ -462,6 +462,9 @@ for (i in 1:nrow(oos)) {
 }
 
 
+hm <- rstan::extract(res, "home_mean")[[1]]
+gm <- rstan::extract(res, "general_mean")[[1]]
+as <- rstan::extract(res, "a")[[1]]
 ss <- rstan::extract(res, "opportunity_lambda")[[1]]
 means <- colSums(ss) / nrow(ss)
 ps <- rstan::extract(res, "p")[[1]]
