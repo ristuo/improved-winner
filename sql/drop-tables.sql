@@ -1,4 +1,5 @@
 drop table odds;
 drop table games;
-drop table results;
+drop table veikkausliiga_player_stats;
+drop table lineups;
 

@@ -1,17 +1,27 @@
-create table results (
-  game_id varchar(100) primary key,
-  home_team_goals integer,
-  away_team_goals integer
-);
-
 create table games (
   event_name varchar(100),
   event_id varchar(100) unique,
-  game_id varchar(100) primary key references results on delete cascade,
+  game_id varchar(100),
   home_team varchar(100),
   away_team varchar(100),
   game_date date,
-  game_time time with time zone
+  game_time time with time zone,
+  league varchar(100),
+  home_team_goals integer,
+  away_team_goals integer,
+  winner varchar(100),
+  dl_time timestamp with time zone,
+  primary key (game_id, league)
+);
+
+create table lineups (
+  team varchar(100),
+  league varchar(100),
+  season varchar(100),
+  player_name varchar(100),
+  player_id varchar(100),
+  dl_time timestamp with time zone,
+  primary key (team, league, season, player_id)
 );
 
 create table odds (
@@ -30,7 +40,34 @@ create table odds (
   close_time timestamp with time zone,
   open_time timestamp with time zone,
   agency varchar(100),
-  primary key(event_id, id)
+  primary key(event_id, id, dl_time)
 );
 
+create table veikkausliiga_player_stats (
+  dl_time timestamp with time zone,
+  exchanged_in integer,
+  exchanged_out integer,
+  games integer, 
+  goal_passes integer,
+  goals integer,
+  in_start_lineup integer,
+  joukkue varchar(100),
+  nimi varchar(100),
+  offsides integer,
+  penalties integer,
+  penalty_kicks integer,
+  penalty_kick_goals integer,
+  play_time float, 
+  raw_row_number varchar(100),
+  red_cards integer,
+  season varchar(100), 
+  shots integer,
+  shots_towards_goal integer,
+  sport_name varchar(100), 
+  tournament_name varchar(100), 
+  goal_pct float,
+  yellow_cards varchar(100),
+  player_id varchar(100),
+  primary key(player_id, season, sport_name)
+);
 
