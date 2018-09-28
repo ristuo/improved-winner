@@ -227,14 +227,15 @@ logger.addHandler(sh)
 driver = webdriver.Firefox()
 
 
-def write_events(season, driver, logger):
+def write_events(season, driver, logger, max_games = 198):
     first = True
     i = 1
     dirpath = "data/events"
     os.makedirs(dirpath, exist_ok = True)
     max_restarts = 3
-    for i in range(0, 500):
+    for i in range(0, max_games):
         sleepy_time = random.random() * 1.2
+        events = None
         if not first:
             logger.info("Sleeping for " + str(sleepy_time))
             time.sleep(sleepy_time)
@@ -243,13 +244,13 @@ def write_events(season, driver, logger):
                 events = find_events(driver, logger, i, season)
                 break
             except:
-                logger.exception("Failed to find events, retry " + str(j) + "/3")
-                logger.info("Retring in 5 seconds")
-                time.sleep(5)
+                logger.exception("Failed to find events, retry " + str(j) + "/" + str(max_restarts))
                 if j > max_restarts:
-                    raise
+                    break
+                logger.info("Retrying in 5 seconds")
+                time.sleep(5)
         if events is None:
-            return
+            continue
         if first:
             wmode = 'w'
         else:
@@ -263,7 +264,7 @@ def write_events(season, driver, logger):
                 writer.writerow(event.__dict__)
         first = False
 
-write_events(2018, driver, logger)
+write_events(2018, driver, logger, max_games = 200)
 write_events(2017, driver, logger)
 write_events(2016, driver, logger)
 write_events(2015, driver, logger)

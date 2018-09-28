@@ -15,7 +15,7 @@ def download_year(year):
     url = VeikkausliigaURLs.get_url_for_year(year)
     res = requests.get(url)
     res.raise_for_status()
-    res_soup = BeautifulSoup(res.content)
+    res_soup = BeautifulSoup(res.content, "html.parser")
     games = res_soup.find('table', {'id': 'games'})
     header = games.find('thead')
     field_names = [x.text for x in header.find_all('td')]
@@ -48,4 +48,6 @@ with open(outpath, "w") as fp:
     writer.writeheader()
     for row in res:
         writer.writerow(row)
+
+
 

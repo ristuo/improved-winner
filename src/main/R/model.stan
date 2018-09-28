@@ -124,7 +124,8 @@ parameters {
   real home_elo_sq_effect;
   real away_elo_effect;
   real away_elo_sq_effect;
-  real beta;
+  real beta_home;
+  real beta_away;
   vector<lower=0>[2] a;
   real phi;
   real home_mean;
@@ -182,13 +183,13 @@ transformed parameters {
       home_mean +
       home_elo_effect * home_elo_adv[i] +
       home_elo_sq_effect * home_elo_adv_sq[i] +
-      beta * home_team_lambda[i]
+      beta_home * home_team_lambda[i]
     );
     mu[i][2] = exp(
       general_mean +
       away_elo_effect * home_elo_adv[i] +
       away_elo_sq_effect * home_elo_adv_sq[i] +
-      beta * away_team_lambda[i]
+      beta_away * away_team_lambda[i]
     );
   }
   for (i in 1:2) {
@@ -218,7 +219,9 @@ model {
   home_elo_sq_effect ~ normal(0,10);
   away_elo_effect ~ normal(0,10);
   away_elo_sq_effect ~ normal(0,10);
-  beta ~ normal(0, 5);
+  beta_home ~ normal(0, 5);
+  beta_away ~ normal(0, 5);
+
   target += bnb_cost(Y, phi, mu, a_inv, n_games);
 }
 
@@ -256,14 +259,13 @@ generated quantities {
     );
     oos_home_mu[i] = exp(
       home_mean +
-      general_mean + 
-      beta * oos_home_team_lambda[i] +
+      beta_home * oos_home_team_lambda[i] +
       home_elo_effect * oos_home_elo_adv[i] + 
       home_elo_sq_effect * oos_home_elo_adv_sq[i]
     );
     oos_away_mu[i] = exp(
 			general_mean +
-      beta * oos_away_team_lambda[i] +
+      beta_away * oos_away_team_lambda[i] +
       away_elo_effect * oos_home_elo_adv[i] + 
       away_elo_sq_effect * oos_home_elo_adv_sq[i]
     );

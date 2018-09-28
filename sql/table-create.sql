@@ -1,32 +1,32 @@
 create table games (
-  event_name varchar(100),
-  event_id varchar(100),
   game_set varchar(100),
   game_id varchar(100),
   home_team varchar(100),
   away_team varchar(100),
   game_date date,
+  season varchar(100),
   game_time time with time zone,
-  league varchar(100),
+  tournament varchar(100),
+  sport_name varchar(100),
   home_team_goals integer,
   away_team_goals integer,
-  winner varchar(100),
   dl_time timestamp with time zone,
-  primary key (game_id, league, game_set)
+  primary key (game_id, tournament, game_set, season)
 );
 
 create table lineups (
   team varchar(100),
+  team_type varchar(100),
   game_id varchar(100),
   league varchar(100),
   season varchar(100),
   game_set varchar(100),
-  player_name varchar(100),
   player_id varchar(100),
   player_position varchar(100),
   player_squad varchar(100),
+  player_link varchar(100),
   dl_time timestamp with time zone,
-  primary key (team, league, season, game_set, player_id)
+  primary key (team, league, season, game_set, player_id, game_id)
 );
 
 create table odds (

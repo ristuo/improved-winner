@@ -29,7 +29,7 @@ load_games <- function(date_string) {
   select(ds, "home", "away", "home_team", "away_team", "date", "game_id")
 }
 
-full_games <- load_games("2018-09-15")
+full_games <- load_games("2018-09-23")
 
 
 bnb_prob_term <- function(y, mu, a_inv) {
@@ -152,7 +152,7 @@ event_game <- goals %>%
   mutate(n = 1)
 
 
-lineup_files <- paste0("data/lineups/2018-09-15/", 2016:2018, ".csv")
+lineup_files <- paste0("data/lineups/2018-09-23/", 2016:2018, ".csv")
 raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
   rbindlist(use.names = TRUE) %>% as.tbl 
 missing_lineups <- raw_lineups %>% 
@@ -332,18 +332,19 @@ res <-
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 20000,
+    iter = 5000,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,
       max_treedepth = 15
     )
   )
-
-dir.create(paste0("r_models/", Sys.Date()))
-pred_dir <- paste0("predictions/", Sys.Date())
+date_str <- Sys.Date()
+#date_str <- "2018-09-18"
+dir.create(paste0("r_models/", date_str))
+pred_dir <- paste0("predictions/", date_str)
 dir.create(pred_dir, recursive = TRUE)
-path <- paste0("r_models/", Sys.Date(), "/model.rds")
+path <- paste0("r_models/", date_str, "/model.rds")
 save(res, file = path)
 
 sampled_values <- rstan::extract(res, c("oos_home_mu", "oos_away_mu","a","phi"))
@@ -363,8 +364,12 @@ away_l <- rstan::extract(res, "away_team_lambda")[[1]]
 
 betas <- rstan::extract(res, "beta")[[1]]
 
-elo_effect <- rstan::extract(res, "elo_effect")[[1]]
+elo_effect <- rstan::extract(res, "home_elo_effect")[[1]]
+elo_effect <- rstan::extract(res, "away_elo_effect")[[1]]
 elo_sq_effect <- rstan::extract(res, "home_elo_sq_effect")[[1]]
+gm <- rstan::extract(res, "general_mean")[[1]]
+hm <- rstan::extract(res, "home_mean")[[1]]
+
 
 
 find_probs <- function(home_mus, away_mus, i, phi_data, a_data, indices) {
