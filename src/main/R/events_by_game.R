@@ -293,6 +293,14 @@ oos_game_data <- make_game_data(oos_lineups) %>%
   select(-game_id) %>%
   as.matrix
 
+
+
+full_games$away_team %<>% factor
+lvls <- levels(full_games$away_team)
+full_games$home_team %<>% factor(levels = lvls)
+oos$home %<>% factor(levels=lvls)
+oos$away %<>% factor(levels=lvls)
+
 stan_game_data <- game_data[,2:ncol(game_data)] %>% as.matrix
 stan_data <- 
   list(
@@ -322,8 +330,10 @@ stan_data <-
     other_n_rows = nrow(other_goals),
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data,
-    home_teams = model.matrix(~home_team_index, full_games)[,-1],
-    away_teams = model.matrix(~away_team_index, full_games)[,-1],
+    home_teams = model.matrix(~home_team, full_games)[,-1],
+    away_teams = model.matrix(~away_team, full_games)[,-1],
+    oos_home_teams = model.matrix(~home, oos)[,-1],
+    oos_away_teams = model.matrix(~away, oos)[,-1],
     n_team_col = length(unique(full_games$home_team_index)) - 1
   )
 
@@ -332,7 +342,7 @@ res <-
     "src/main/R/model.stan",
     data = stan_data,
     refresh = 5,
-    iter = 5000,
+    iter = 2000,
     chains = 4,   
     control = list(
       adapt_delta = 0.99,

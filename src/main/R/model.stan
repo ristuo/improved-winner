@@ -108,6 +108,8 @@ data {
   vector[oos_n_games] oos_home_elo_adv;
   vector[oos_n_games] oos_away_elo_adv_sq;
   vector[oos_n_games] oos_home_elo_adv_sq;
+  matrix[oos_n_games, n_team_col] oos_home_teams;
+  matrix[oos_n_games, n_team_col] oos_away_teams;
 }
 
 parameters {
@@ -130,6 +132,8 @@ parameters {
   real phi;
   real home_mean;
   real general_mean;
+  vector[n_teams - 1] team_defence_strengths;
+  vector[n_teams - 1] team_attack_strengths;
 }
 
 transformed parameters {
@@ -183,13 +187,17 @@ transformed parameters {
       home_mean +
       home_elo_effect * home_elo_adv[i] +
       home_elo_sq_effect * home_elo_adv_sq[i] +
-      beta_home * home_team_lambda[i]
+      beta_home * home_team_lambda[i] + 
+      home_teams[i,] * team_attack_strengths + 
+      away_teams[i,] * team_defence_strengths
     );
     mu[i][2] = exp(
       general_mean +
       away_elo_effect * home_elo_adv[i] +
       away_elo_sq_effect * home_elo_adv_sq[i] +
-      beta_away * away_team_lambda[i]
+      beta_away * away_team_lambda[i] + 
+      home_teams[i,] * team_defence_strengths + 
+      away_teams[i,] * team_attack_strengths
     );
   }
   for (i in 1:2) {
@@ -261,13 +269,17 @@ generated quantities {
       home_mean +
       beta_home * oos_home_team_lambda[i] +
       home_elo_effect * oos_home_elo_adv[i] + 
-      home_elo_sq_effect * oos_home_elo_adv_sq[i]
+      home_elo_sq_effect * oos_home_elo_adv_sq[i] +
+      home_teams[i,] * team_attack_strengths + 
+      away_teams[i,] * team_defence_strengths
     );
     oos_away_mu[i] = exp(
 			general_mean +
       beta_away * oos_away_team_lambda[i] +
       away_elo_effect * oos_home_elo_adv[i] + 
-      away_elo_sq_effect * oos_home_elo_adv_sq[i]
+      away_elo_sq_effect * oos_home_elo_adv_sq[i] +
+      oos_home_teams[i,] * team_defence_strengths + 
+      oos_away_teams[i,] * team_attack_strengths
     );
 	}
 }
