@@ -8,9 +8,11 @@ options(mc.cores = 4)
 library(stringr)
 library(dplyr) 
 library(magrittr) 
+library(RPostgreSQL)
 options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
+
 
 load_games <- function(date_string) {
   ds <- fread(paste0("data/games/", date_string, "/games.csv")) %>% as.tbl
