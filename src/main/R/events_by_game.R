@@ -163,7 +163,13 @@ res <-
     data = stan_data,
     refresh = 5,
     iter = 2000,
-    chains = 1,   
+    chains = 4,   
+    init = list(
+      list(phi = 0.5, a = c(0.9, 0.8)),
+      list(phi = 0.8, a = c(0.5, 0.58)),
+      list(phi = 1.2, a = c(1.2, 1.1)),
+      list(phi = 0.9, a = c(0.3, 2.3))
+    ),
     control = list(
       adapt_delta = 0.99,
       max_treedepth = 15
