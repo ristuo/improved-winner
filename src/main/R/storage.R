@@ -1,4 +1,5 @@
 library(RPostgreSQL)
+library(stringr)
 library(dplyr)
 library(magrittr)
 library(configr)
@@ -52,6 +53,8 @@ load_games <- function(sport_name, tournament) {
       tournament='",tournament,"'
   ")   
   res <- dbGetQuery(con, qs) %>% as.tbl
+  res$home_team <- str_trim(res$home_team)
+  res$away_team <- str_trim(res$away_team)
   games <- filter(res, !is.na(home_team_goals)) 
   oos <- filter(res, is.na(home_team_goals)) %>%
     arrange(game_date) %>%
@@ -78,6 +81,8 @@ load_player_stats <- function(tournament) {
       player_id
     FROM
       veikkausliiga_player_stats 
+    WHERE
+      season > '2015'
     GROUP BY
       nimi,
       player_id
@@ -95,6 +100,7 @@ load_lineups <- function(tournament) {
       game_id,
       player_id,
       season,
+      team_type,
       game_set
     FROM
       lineups 

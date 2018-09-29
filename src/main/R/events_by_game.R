@@ -1,3 +1,6 @@
+source("src/main/R/storage.R")
+source("src/main/R/bnb_util.R")
+
 library(data.table)
 library(elo)
 library(ggplot2)
@@ -14,70 +17,37 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
 
-load_games <- function(date_string) {
-  ds <- fread(paste0("data/games/", date_string, "/games.csv")) %>% as.tbl
-  ds$home <- as.numeric(str_extract(ds$Tulos, "^[0-9]{1,2}"))
-  ds$away <- as.numeric(str_extract(ds$Tulos, "[0-9]{1,2}$"))
-  ds$date <- str_extract(ds$Pvm, "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{4}$") %>% 
-    as.Date("%d.%m.%Y")
-  for (i in 2:nrow(ds)) {
-    if (is.na(ds$date[i])) {
-      ds$date[i] = ds$date[i - 1]
-    }
-  }
-  ds$home_team <- str_extract(ds$Ottelu, "(^.*) -") %>% gsub(" -", "", .)
-  ds$away_team <- str_extract(ds$Ottelu, "- .*$") %>% gsub("- ", "", .)
-  ds <- ds[complete.cases(ds),]
-  select(ds, "home", "away", "home_team", "away_team", "date", "game_id")
-}
 
-full_games <- load_games("2018-09-23")
+lineups <- load_lineups("Veikkausliiga") %>% filter(game_id %in% game_id)
+all_games <- load_games(sport_name = "Jalkapallo", "Veikkausliiga")
+games <- all_games$games
+game_ids <- intersect(unique(games$game_id), unique(lineups$game_id))
+games <- filter(games, game_id %in% game_ids)
+lineups <- filter(lineups, game_id %in% game_ids)
+
+oos_games <- all_games$oos[1:min(15, nrow(all_games$oos)),]
+teams <- unique(c(games$home_team,games$away_team))
+games$home_team_index <- match(games$home_team, teams)
+games$away_team_index <- match(games$away_team, teams)
+oos_games$home_team_index <- match(oos_games$home_team, teams)
+oos_games$away_team_index <- match(oos_games$away_team, teams)
 
 
-bnb_prob_term <- function(y, mu, a_inv) {
-	a_inv_mu <- a_inv * mu;
-	return(lgamma(y + a_inv_mu) - lgamma(y + 1) - 
-		lgamma(a_inv_mu) - y * log1p(a_inv) + 
-		a_inv_mu * (log(a_inv) - log1p(a_inv))
-	)
-}
 
-bnb_final_term <- function(y1, y2, phi, mu1, mu2, a_inv1, a_inv2) {
-	theta1 <- 1.0 / (a_inv1 + 1)
-	theta2 <- 1.0 / (a_inv2 + 1)
-	c1 <- as.numeric(((1.0 - theta1) / (1 - theta1 * exp(-1))) ^ (a_inv1 * mu1))
-	c2 <- as.numeric(((1.0 - theta2) / (1 - theta2 * exp(-1))) ^ (a_inv2 * mu2))
-	res <- phi * (exp(-y1) - c1) * (exp(-y2) - c2)
-	if (res > -1) {
-		return(log1p(res))
-	} else {
-		return(NA)
-	}
-}
+player_stats <- load_player_stats("Veikkausliiga")
+player_ids <- unique(lineups$player_id)
+lineups$player_index <- match(lineups$player_id, player_ids)
+player_stats$player_id_index <- match(player_stats$player_id, player_ids)
+player_stats <- player_stats[complete.cases(player_stats),]
+player_stats$shots <- mapply(function(x,y) max(x,y), player_stats$shots, player_stats$goals)
 
-bnb_prob <- function(y1, y2, phi, mu1, mu2, a_inv1, a_inv2) {
-	final_term <- bnb_final_term(y1, y2, phi, mu1, mu2, a_inv1, a_inv2)
-	exp(bnb_prob_term(y1, mu1, a_inv1) + bnb_prob_term(y2, mu2, a_inv2) + final_term)
-}
-
-bnb_sample <- function(mu, a, phi, max_goals = 10) {
-	res <- matrix(nrow=max_goals, ncol = max_goals)
-	for (i in 1:max_goals) {
-		for (j in 1:max_goals) {
-			res[i,j] <- as.numeric(bnb_prob(i - 1,j - 1,phi,mu[1],mu[2],1/a[1],1/a[2]))
-		}
-	}
-	res
-}
 
 make_game_data <- function(lineups) {
   res <- lineups %>%
     group_by(game_id) %>%
     do((function(df) {
-      home_players <- filter(df, team_type == "home")$player_id
-      away_players <- filter(df, team_type == "away")$player_id
-      home_players <- player_index[as.character(home_players)] %>% setNames(NULL)
-      away_players <- player_index[as.character(away_players)] %>% setNames(NULL)
+      home_players <- filter(df, team_type == "home")$player_index
+      away_players <- filter(df, team_type == "away")$player_index
       as.data.frame(
         t(c(home_players, away_players)),
         stringsAsFactors = FALSE
@@ -85,110 +55,11 @@ make_game_data <- function(lineups) {
     })(.))
 }
 
-events_years <- c(2018, 2017, 2016)
-events_files <- paste0("data/events/events_", events_years, ".csv")
+lineups_wide <- make_game_data(lineups)
 
-events <- events_files %>% Map(fread, .) %>% rbindlist(use.names = T) %>% as.tbl
-events$is_additional_time %<>% as.logical
-events$minutes %<>% as.numeric
-events$player_id <- str_extract(events$player_link, "/([0-9])*/") %>% gsub("/", "",.) %>% as.numeric 
-events %<>% unique
-
-goal_events <- events %>%
-  mutate(event_type = ifelse(grepl("Laukaus", event_type), "Laukaus", event_type)) %>%
-  filter(event_type %in% c("Laukaus", "Kulmapotku", "Vapaapotku", "Maali"))
-
-set_goals <- function(df) {
-  df$global_index <- nrow(df):1
-  maalit <- filter(df, event_type == "Maali")
-  ei_maalit <- filter(df, event_type != "Maali")
-  ei_maalit$score <- 0
-  ei_maalit$index <- nrow(ei_maalit):1
-  na_goals <- filter(ei_maalit, FALSE)
-  if (nrow(maalit)) {
-    for (i in 1:nrow(maalit)) {
-      maali <- as.list(maalit[i,])
-      maali_gi <- maali$global_index
-      minute <- maali$minutes
-      potentials <- filter(
-        ei_maalit, 
-        team == maali$team & 
-          global_index <= maali_gi &
-          (minute - minutes) <= 1
-      )
-      potential_specials <- filter(potentials, event_type != "Laukaus")
-      potential_laukaus <- filter(potentials, event_type == "Laukaus") 
-      if (nrow(potential_laukaus)) {
-        index <- potential_laukaus$index[1]
-        row <- nrow(ei_maalit) - (index - 1)
-        ei_maalit$score[row] <- 1       
-      } else if (nrow(potential_specials)) {
-        index <- potential_specials$index[1]
-        row <- nrow(ei_maalit) - (index - 1)
-        ei_maalit$score[row] <- 1
-      } else {
-        res <- as.data.frame(maali, stringsAsFactors = FALSE) 
-        res$event_type <- NA
-        res$index <- NA
-        res$score <- 1
-        na_goals <- rbindlist(list(na_goals, res))
-      }
-    }
-  }
-  if (nrow(na_goals)) {
-    na_goals$score <- 1
-  }
-  res <- rbindlist(list(na_goals, ei_maalit))
-  select(res, -global_index, -index)
-}
-
-goals <- goal_events %>%
-  group_by(date, away_team, home_team) %>%
-  do(set_goals(.)) %>%
-  ungroup %>%
-  mutate(team = gsub("\\(|\\)", "", team)) 
-
-event_game <- goals %>%
-  mutate(event_type = ifelse(is.na(event_type), "unknown", event_type)) %>%
-  select(player_id, game_id, event_type, score) %>%
-  mutate(n = 1)
-
-
-lineup_files <- paste0("data/lineups/2018-09-23/", 2016:2018, ".csv")
-raw_lineups <- Map(function(d) { fread(d) }, lineup_files) %>% 
-  rbindlist(use.names = TRUE) %>% as.tbl 
-missing_lineups <- raw_lineups %>% 
-  group_by(game_id) %>% summarize(n = n()) %>% filter(n != 22)
-lineups <- filter(raw_lineups, !game_id %in% missing_lineups$game_id) %>%
-  filter(game_id %in% event_game$game_id) 
-lineup_game <- lineups %>%
-  rowwise() %>%
-  do((function(df) {
-    res <- as.data.frame(df, stringsAsFactors = F)[rep(1,4),]
-    res$event_type <- c("Laukaus", "Vapaapotku", "Kulmapotku", "unknown")
-    res$score <- 0
-    res$n <- 0
-    res
-  })(.)) %>%
-  select(game_id, player_id, event_type, score,n) %>%
-  ungroup %>%
-  mutate(event_type = enc2utf8(event_type))
-
-n_game_per_player <- lineups %>%
-  group_by(player_id) %>%
-  summarize(games = n_distinct(game_id))
-
-oos <- fread("data/oos/oos_05-09.csv", sep = ",", col.names = "game") %>% as.tbl 
-oos$home <- unlist(lapply(X = str_split(oos$game, " - "), FUN = function(d) {d[1]}))
-oos$away <- unlist(lapply(X = str_split(oos$game, " - "), FUN = function(d) {d[2]}))
-oos <- select(oos, -game)
-oos$game_id <- 1:nrow(oos)
-games <- select(events, "game_id", "home_team", "away_team", "date") %>% unique %>%
-  mutate(date = as.Date(date, "%d.%m.%Y")) %>%
-  filter(game_id %in% raw_lineups$game_id)
 find_most_recent_game <- function(games, team) {
   res <- filter(games, home_team == team | away_team == team) %>%
-    arrange(date) %>%
+    arrange(game_date) %>%
     tail(n = 1)
   is_home <- res$home_team == team
   list(
@@ -196,7 +67,6 @@ find_most_recent_game <- function(games, team) {
     team_type_in_game = ifelse(is_home, "home", "away")
   )
 }
-
 
 find_most_recent_lineup <- function(raw_lineups, games, team, team_type, game_id) {
   recent <- find_most_recent_game(games, team)
@@ -207,108 +77,60 @@ find_most_recent_lineup <- function(raw_lineups, games, team, team_type, game_id
   lineup$team_type <- team_type
   lineup
 }
-oos_known_lineups <- filter(raw_lineups, game_id %in% oos$game_id)
-missing <- oos %>% filter(!game_id %in% oos_known_lineups$game_id)
-oos_lineups <- missing %>% rowwise() %>%
+
+oos_lineups <- oos_games %>% rowwise() %>%
   do((function(df) { 
-    home <- df$home
-    home_res <- find_most_recent_lineup(raw_lineups, games, home, "home", df$game_id)
-    away <- df$away
-    away_res <- find_most_recent_lineup(raw_lineups, games, away, "away", df$game_id)
+    home <- df$home_team
+    home_res <- find_most_recent_lineup(lineups, games, home, "home", df$game_id)
+    away <- df$away_team
+    away_res <- find_most_recent_lineup(lineups, games, away, "away", df$game_id)
     bind_rows(home_res, away_res)
-  })(.)) %>% bind_rows(oos_known_lineups)
+  })(.)) 
 
-set_index <- function(df, variable, indices = c()) {
-  df <- as.data.frame(df)
-  values <- unique(df[,variable])
-  if (!length(indices)) {
-    indices <- 1:length(values) %>% setNames(values)
-  }
-  res_name <- paste0(variable, "_index")
-  df[,res_name] <- indices[as.character(df[,variable])]
-  list(df = as.tbl(df), indices = indices)
-}
+games <- arrange(games, game_date)
+games$home_won <- with(games, ifelse(
+  home_team_goals == away_team_goals, 0.5,
+  ifelse(home_team_goals > away_team_goals, 1.0, 0)
+))
 
-player_goals <- filter(event_game, game_id %in% lineup_game$game_id) %>%
-  bind_rows(lineup_game) %>%
-  group_by(player_id, event_type) %>%
-  summarize(goals = sum(score), n = sum(n)) %>%
-  inner_join(n_game_per_player, by = "player_id")
-
-shot_goals <- filter(player_goals, event_type == "Laukaus")
-other_goals <- filter(player_goals, event_type != "Laukaus") %>%
-  group_by(player_id) %>%
-  summarize(goals = sum(goals), games = sum(games))
-shot_goals %<>% filter(player_id %in% other_goals$player_id)
-other_goals %<>% filter(player_id %in% shot_goals$player_id)
-shot_index <- set_index(shot_goals, "player_id")
-shot_goals <- shot_index$df
-player_index <- shot_index$indices
-other_goals <- set_index(other_goals, c("player_id"), indices = player_index)[[1]]
-
-
-
-
-
-
-
-
-teams <- unique(events$home_team)
-team_index <- 1:length(teams) %>% setNames(teams)
-full_games %<>% filter(game_id %in% unique(lineups$game_id))
-tmp <- set_index(full_games, "home_team", team_index)
-tmp <- set_index(tmp$df, "away_team", team_index)
-full_games <- tmp$df
-full_games$home_team_index %<>% factor
-full_games$away_team_index %<>% factor
-full_games <- full_games %>%
-  mutate(home_won = ifelse(home == away, 0.5, ifelse(home > away, 1, 0)))
-
-
-full_games_by_date <- arrange(full_games, date)
-elos <- elo.run(home_won ~ home_team + away_team, data = full_games_by_date, k = 22)
+elos <- elo.run(home_won ~ home_team + away_team, data = games, k = 22)
 all_elo_ranks <- as.data.frame(elos) 
-all_elo_ranks$game_id <- full_games_by_date$game_id
+all_elo_ranks$game_id <- games$game_id
 all_elo_ranks$elo.A %<>% {./100}
 all_elo_ranks$elo.B %<>% {./100}
-all_elo_ranks <- all_elo_ranks[sapply(full_games$game_id, function(d) which(all_elo_ranks$game_id == d)),]
-
+all_elo_ranks <- all_elo_ranks[sapply(games$game_id, function(d) which(all_elo_ranks$game_id == d)),]
 home_elo_adv <- all_elo_ranks$elo.A - all_elo_ranks$elo.B
 away_elo_adv <- all_elo_ranks$elo.B - all_elo_ranks$elo.A
 home_elo_adv_sq <- sign(home_elo_adv) * (home_elo_adv ^ 2)
 away_elo_adv_sq <- sign(away_elo_adv) * (away_elo_adv ^ 2)
 final_elos <- final.elos(elos) / 100
-oos_home_elo_adv <- final_elos[oos$home] - final_elos[oos$away]
-oos_away_elo_adv <- final_elos[oos$away] - final_elos[oos$home]
+
+oos_home_elo_adv <- final_elos[oos_games$home_team] - final_elos[oos_games$away_team]
+oos_away_elo_adv <- final_elos[oos_games$away_team] - final_elos[oos_games$home_team]
 oos_home_elo_adv_sq <- sign(oos_home_elo_adv) * (oos_home_elo_adv ^ 2)
 oos_away_elo_adv_sq <- sign(oos_away_elo_adv) * (oos_away_elo_adv ^ 2)
 
 game_data <- make_game_data(lineups)
 game_data <- as.data.frame(game_data)
-game_data <- game_data[sapply(full_games$game_id, function(d) which(game_data$game_id == d)),]
+game_data <- game_data[sapply(games$game_id, function(d) which(game_data$game_id == d)),]
 
-oos_home_team_index <- setNames(team_index[oos$home], NULL)
-oos_away_team_index <- setNames(team_index[oos$away], NULL)
 oos_game_data <- make_game_data(oos_lineups) %>%
-  arrange(game_id) %>%
-  ungroup %>%
-  select(-game_id) %>%
-  as.matrix
+  ungroup 
+oos_game_data <- oos_game_data[sapply(oos_games$game_id, function(d) which(oos_game_data$game_id == d)),]
+oos_game_data %<>% select(-game_id) %>% as.matrix
 
-
-
-full_games$away_team %<>% factor
-lvls <- levels(full_games$away_team)
-full_games$home_team %<>% factor(levels = lvls)
-oos$home %<>% factor(levels=lvls)
-oos$away %<>% factor(levels=lvls)
-
+games$away_team %<>% factor
+lvls <- levels(games$away_team)
+games$home_team %<>% factor(levels = lvls)
+oos_games$home_team %<>% factor(levels=lvls)
+oos_games$away_team %<>% factor(levels=lvls)
 stan_game_data <- game_data[,2:ncol(game_data)] %>% as.matrix
+
 stan_data <- 
   list(
     n_games = nrow(game_data),
     n_col_games = 22,
-    n_teams = length(team_index),
+    n_teams = length(teams),
     home_elo = all_elo_ranks$elo.A,
     away_elo = all_elo_ranks$elo.B,
     game_data = stan_game_data,
@@ -320,23 +142,19 @@ stan_data <-
     oos_home_elo_adv = oos_home_elo_adv,
     oos_away_elo_adv_sq = oos_away_elo_adv_sq,
     oos_home_elo_adv_sq = oos_home_elo_adv_sq,
-    Y = cbind(full_games$home, full_games$away),
-    shot_n_rows = nrow(shot_goals),
-    shot_player_id_index = shot_goals$player_id_index,   
-    shot_goals = shot_goals$goals,
-    shot_games = shot_goals$games,
-    shot_n = shot_goals$n,
-    other_player_id_index = other_goals$player_id_index,
-    other_goals = other_goals$goals,
-    other_games = other_goals$games,
-    other_n_rows = nrow(other_goals),
+    Y = cbind(games$home_team_goals, games$away_team_goals),
+    shot_n_rows = nrow(player_stats),
+    shot_player_id_index = player_stats$player_id_index,   
+    shot_goals = player_stats$goals,
+    shot_games = player_stats$games,
+    shot_n = player_stats$shots,
     oos_n_games = nrow(oos_game_data),    
     oos_game_data = oos_game_data,
-    home_teams = model.matrix(~home_team, full_games)[,-1],
-    away_teams = model.matrix(~away_team, full_games)[,-1],
-    oos_home_teams = model.matrix(~home, oos)[,-1],
-    oos_away_teams = model.matrix(~away, oos)[,-1],
-    n_team_col = length(unique(full_games$home_team_index)) - 1
+    home_teams = model.matrix(~home_team, games)[,-1],
+    away_teams = model.matrix(~away_team, games)[,-1],
+    oos_home_teams = model.matrix(~home_team, oos_games)[,-1],
+    oos_away_teams = model.matrix(~away_team, oos_games)[,-1],
+    n_team_col = length(unique(games$home_team)) - 1
   )
 
 res <- 
@@ -345,12 +163,13 @@ res <-
     data = stan_data,
     refresh = 5,
     iter = 2000,
-    chains = 4,   
+    chains = 1,   
     control = list(
       adapt_delta = 0.99,
       max_treedepth = 15
     )
   )
+
 date_str <- Sys.Date()
 #date_str <- "2018-09-18"
 dir.create(paste0("r_models/", date_str))

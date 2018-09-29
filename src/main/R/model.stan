@@ -3,7 +3,7 @@
 functions {
   real compute_team_lambda(int i, vector opportunity_lambda, 
                            int[,] game_data,
-                           vector p, vector other_p, int start_index, 
+                           vector p, int start_index, 
                            int end_index,
                            real default_value) {
     real res = 0;
@@ -13,7 +13,7 @@ functions {
       if (index == -1) {
         res = res + default_value;
       } else {
-        res = res + opportunity_lambda[index] * p[index] + other_p[index];
+        res = res + opportunity_lambda[index] * p[index];
       }
     }
     return(res);
@@ -94,10 +94,6 @@ data {
   int<lower=0> shot_goals[shot_n_rows];
   int<lower=0> shot_player_id_index[shot_n_rows];
   vector[shot_n_rows] shot_games;
-  int<lower=0> other_n_rows;
-  int<lower=0> other_goals[other_n_rows];
-  int<lower=0> other_player_id_index[other_n_rows];
-  int other_games[other_n_rows];
   vector[n_games] away_elo_adv;
   vector[n_games] home_elo_adv;
   vector[n_games] away_elo_adv_sq;
@@ -117,11 +113,8 @@ parameters {
   real<lower=0> scoring_strength_sigma;
   real opportunity_strength_mu;
   real<lower=0> opportunity_strength_sigma;
-  real other_strength_mu;
-  real<lower=0> other_strength_sigma;
   vector[shot_n_rows] raw_scoring_strength;  
   vector[shot_n_rows] raw_opportunity_strength;
-  vector[other_n_rows] raw_other_strength;
   real home_elo_effect;
   real home_elo_sq_effect;
   real away_elo_effect;
@@ -141,17 +134,10 @@ transformed parameters {
   vector[shot_n_rows] scoring_strength;
   vector[shot_n_rows] opportunity_strength;
   vector[shot_n_rows] opportunity_lambda;
-  vector[other_n_rows] other_strength;
   vector[shot_n_rows] p;  
-  vector[other_n_rows] other_p;
   vector[n_games] home_team_lambda;
   vector[n_games] away_team_lambda;
   vector[2] mu[n_games];
-  other_strength  = 
-    other_strength_mu + 
-    raw_other_strength * 
-    other_strength_sigma;
-  other_p = inv_logit(other_strength[other_player_id_index]);
   scoring_strength = 
     scoring_strength_mu + 
     scoring_strength_sigma * raw_scoring_strength;
@@ -166,20 +152,18 @@ transformed parameters {
       opportunity_lambda, 
       game_data,
       p, 
-      other_p, 
       1, 
       n_col_games/2,
-      exp(opportunity_strength_mu) * scoring_strength_mu + other_strength_mu
+      exp(opportunity_strength_mu) * scoring_strength_mu 
     );
     away_team_lambda[i] = compute_team_lambda(
       i, 
       opportunity_lambda, 
       game_data,
       p, 
-      other_p, 
       n_col_games/2 + 1, 
       n_col_games,
-      exp(opportunity_strength_mu) * scoring_strength_mu + other_strength_mu
+      exp(opportunity_strength_mu) * scoring_strength_mu 
     );
   }
   for (i in 1:n_games) {
@@ -213,16 +197,12 @@ model {
   a[2] ~ lognormal(0.1, 0.4);
   raw_scoring_strength ~ normal(0,1);
   raw_opportunity_strength ~ normal(0,1);
-  raw_other_strength ~ normal(0,1);
-  other_strength_mu ~ normal(0, 31); 
-  other_strength_sigma ~ uniform(0, 50);
   opportunity_strength_mu ~ normal(0, 31);
   opportunity_strength_sigma ~ uniform(0, 50);
   scoring_strength_mu ~ normal(0, 31);
   scoring_strength_sigma ~ uniform(0, 50);
   shot_n ~ poisson(shot_games[shot_player_id_index] .* opportunity_lambda);
   shot_goals ~ binomial(shot_n, p);
-  other_goals ~ binomial(other_games, other_p);
   home_elo_effect ~ normal(0,10);
   home_elo_sq_effect ~ normal(0,10);
   away_elo_effect ~ normal(0,10);
@@ -236,7 +216,6 @@ model {
 generated quantities {
 	real default_opportunity_lambda;
 	real default_scoring_p;
-	real default_other_p;
 	vector[oos_n_games] oos_home_mu;
 	vector[oos_n_games] oos_away_mu;
 	vector[oos_n_games] oos_home_team_lambda;
@@ -244,26 +223,23 @@ generated quantities {
   for (i in 1:oos_n_games) {
     default_opportunity_lambda = exp(normal_rng(opportunity_strength_mu, opportunity_strength_sigma));
     default_scoring_p = inv_logit(normal_rng(scoring_strength_mu, scoring_strength_sigma));
-    default_other_p = inv_logit(normal_rng(other_strength_mu, other_strength_sigma));
     oos_home_team_lambda[i] = compute_team_lambda(
       i, 
       opportunity_lambda, 
       oos_game_data,
       p, 
-      other_p, 
       1, 
       n_col_games/2,
-      default_opportunity_lambda * default_scoring_p + default_other_p
+      default_opportunity_lambda * default_scoring_p 
     );
     oos_away_team_lambda[i] = compute_team_lambda(
       i, 
       opportunity_lambda, 
       oos_game_data,
       p, 
-      other_p, 
       n_col_games/2 + 1, 
       n_col_games,
-      default_opportunity_lambda * default_scoring_p + default_other_p
+      default_opportunity_lambda * default_scoring_p 
     );
     oos_home_mu[i] = exp(
       home_mean +
