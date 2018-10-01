@@ -161,18 +161,18 @@ res <-
   stan(  
     "src/main/R/model.stan",
     data = stan_data,
-    refresh = 5,
-    iter = 2000,
+    refresh = 1,
+    iter = 5000,
     chains = 4,   
     init = list(
-      list(phi = 0.5, a = c(0.9, 0.8)),
-      list(phi = 0.8, a = c(0.5, 0.58)),
-      list(phi = 1.2, a = c(1.2, 1.1)),
-      list(phi = 0.9, a = c(0.3, 2.3))
+      list(phi = 0.5, home_elo_effect = 0.4, away_elo_effect = 0.3, beta_home = 0.45, beta_away = 0.5, a = c(1.01, 0.99)),
+      list(phi = 0.6, home_elo_effect = 0.4, away_elo_effect = 0.3, beta_home = 0.6, beta_away = 0.5, a = c(1.01, 0.99)),
+      list(phi = 0.54, home_elo_effect = 0.4, away_elo_effect = 0.3, beta_home = 0.4, beta_away = 0.5, a = c(1.01, 0.99)),
+      list(phi = 0.34, home_elo_effect = 0.4, away_elo_effect = 0.3, beta_home = 0.51, beta_away = 0.5, a = c(1.01, 0.99))
     ),
     control = list(
       adapt_delta = 0.99,
-      max_treedepth = 15
+      max_treedepth = 16
     )
   )
 
@@ -239,8 +239,8 @@ for (i in 1:ncol(home_mus)) {
 	away_win <- sum(probability_mat[upper.tri(probability_mat)])
 	draw <- sum(diag(probability_mat))
 	home_win <- sum(probability_mat[lower.tri(probability_mat)])
-	home <- oos[i,]$home
-	away <- oos[i,]$away
+	home <- oos_games[i,]$home_team
+	away <- oos_games[i,]$away_team
 	filename <- paste0(pred_dir, "/", gsub(" ", "_", home), "-", gsub(" ", "_", away), ".csv")
   sink(filename)
   cat(paste(rep("-", 80), collapse = ""), "\n")
@@ -278,17 +278,14 @@ away_post <- rstan::extract(res, "away_team_post_goals")[[1]]
 results$hp <- home_post
 results$ap <- away_post
 plottable <- results
-par(mfrow = c(1,2))
-plot(plottable$home, plottable$hp)
-plot(plottable$away, plottable$ap)
 
-oos_hg <- rstan::extract(res, "oos_home_team_goals")[[1]]
-oos_ag <- rstan::extract(res, "oos_away_team_goals")[[1]]
+
+
 for (i in 1:nrow(oos)) {
   filename <- paste0(pred_dir, "/", oos$game_id[i], ".csv")
   sink(filename)
   cat(paste(rep("-", 80), collapse = ""), "\n")
-  cat(oos$home[i], "vs", oos$away[i], "\n")
+  cat(oos_games$home_team[i], "vs", oos_games$away_team[i], "\n")
   cat("Goals:\n")
   print(goals_table)
   cat("P(#Goals > 2.5) = ", more_goals_than(goals_table),"\n", sep = "")
@@ -323,7 +320,7 @@ atl <- rstan::extract(res, "away_team_lambda")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
 x <- rstan::extract(res, "opportunity_strength_sigma")[[1]]
-x <- rstan::extract(res, "elo_effect")[[1]]
+x <- rstan::extract(res, "away_elo_effect")[[1]]
 x <- rstan::extract(res, "elo_sq_effect")[[1]]
 x <- rstan::extract(res, "beta")[[1]]
 x <- rstan::extract(res, "scoring_strength_mu")[[1]]
@@ -360,6 +357,8 @@ agoals <- rstan::extract(res, "oos_away_team_goals")[[1]]
 
 hg_all <- apply(hgoals, 1, sum)
 ag_all <- apply(agoals, 1, sum)
+
+ts <- rstan::extract(res, "team_attack_strengths")[[1]]
 
 games_meta <- results %>% inner_join(games, by = "game_id")
 plot_n_goals <- function(team1, team2, games_meta, hgoals, agoals) {
