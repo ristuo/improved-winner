@@ -16,10 +16,11 @@ options(width = 120)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores()) #options(mc.cores = 2) 
 
+tournament <- "Liiga"
+sport_name <- "Jääkiekko"
 
-
-lineups <- load_lineups("Veikkausliiga") %>% filter(game_id %in% game_id)
-all_games <- load_games(sport_name = "Jalkapallo", "Veikkausliiga")
+lineups <- load_lineups(tournament) %>% filter(game_id %in% game_id)
+all_games <- load_games(sport_name = sport_name, tournament = tournament)
 games <- all_games$games
 game_ids <- intersect(unique(games$game_id), unique(lineups$game_id))
 games <- filter(games, game_id %in% game_ids)
@@ -34,7 +35,7 @@ oos_games$away_team_index <- match(oos_games$away_team, teams)
 
 
 
-player_stats <- load_player_stats("Veikkausliiga")
+player_stats <- load_player_stats(tournament)
 player_ids <- unique(lineups$player_id)
 lineups$player_index <- match(lineups$player_id, player_ids)
 player_stats$player_id_index <- match(player_stats$player_id, player_ids)
@@ -125,11 +126,13 @@ games$home_team %<>% factor(levels = lvls)
 oos_games$home_team %<>% factor(levels=lvls)
 oos_games$away_team %<>% factor(levels=lvls)
 stan_game_data <- game_data[,2:ncol(game_data)] %>% as.matrix
+stan_game_data[is.na(stan_game_data)] <- -1
+oos_game_data[is.na(oos_game_data)] <- -1
 
 stan_data <- 
   list(
     n_games = nrow(game_data),
-    n_col_games = 22,
+    n_col_games = ncol(stan_game_data),
     n_teams = length(teams),
     home_elo = all_elo_ranks$elo.A,
     away_elo = all_elo_ranks$elo.B,
@@ -159,10 +162,10 @@ stan_data <-
 
 res <- 
   stan(  
-    "src/main/R/model.stan",
+    paste0("src/main/R/model.stan"),
     data = stan_data,
     refresh = 1,
-    iter = 5000,
+    iter = 2000,
     chains = 4,   
     init = list(
       list(phi = 0.5, home_elo_effect = 0.4, away_elo_effect = 0.3, beta_home = 0.45, beta_away = 0.5, a = c(1.01, 0.99)),
@@ -178,10 +181,11 @@ res <-
 
 date_str <- Sys.Date()
 #date_str <- "2018-09-18"
-dir.create(paste0("r_models/", date_str))
-pred_dir <- paste0("predictions/", date_str)
+model_dir <- paste0("r_models/", date_str, "/", tournament)
+dir.create(model_dir)
+pred_dir <- paste0("predictions/", date_str, "/", tournament)
 dir.create(pred_dir, recursive = TRUE)
-path <- paste0("r_models/", date_str, "/model.rds")
+path <- paste0(model_dir, "/model.rds")
 save(res, file = path)
 
 sampled_values <- rstan::extract(res, c("oos_home_mu", "oos_away_mu","a","phi"))
