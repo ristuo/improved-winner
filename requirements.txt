@@ -1,2 +1,9 @@
-requests
-beautifulsoup4
+tensorflow
+numpy
+psycopg2
+pandas
+cython
+arviz
+matplotlib
+pystan
+rankit
