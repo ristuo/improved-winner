@@ -55,7 +55,7 @@ def make_game_data(lineups):
     nrow = game_data.shape[0]
     ncol = game_data[0].shape[0]
     game_data_matrix = np.concatenate(game_data.values).reshape((nrow,ncol))
-    return game_data_matrix
+    return game_data_matrix, game_data.index
 
 
 def make_oos_lineup(row, games, lineups):
@@ -112,9 +112,11 @@ player_stats = player_stats[player_stats['player_id_index'].apply(lambda a: a is
 mask = player_stats['goals'] > player_stats['shots']
 player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
 
-game_data = make_game_data(lineups)
+
+
+game_data, game_data_index = make_game_data(lineups)
 oos_lineups = make_oos_lineups(oos_games, all_games, lineups)
-oos_game_data = make_game_data(oos_lineups)
+oos_game_data, oos_game_data_index = make_game_data(oos_lineups)
 
 stan_data = {
     'n_players': player_stats.shape[0],
@@ -138,39 +140,28 @@ samples = stan_model.sampling(
     }
 )
 
+
+
 lambdas = samples.extract('lambda')['lambda']
 probs = samples.extract('probability')['probability']
-lmeans = np.apply_along_axis(np.mean, 0, np.exp(lambdas))
-lmeans.shape
-np.max(lmeans)
-np.min(lmeans)
-np.min(stan_data['shots'])
-np.quantile(lmeans, np.arange(0,1,0.1))
-lambdas.shape
-np.mean(lambdas[::,510])
-np.min(np.apply_along_axis(np.mean, 1, probs))
-samples.plot('probability_population_mean')
-
-summaries = samples.summary(pars = ['probability_population_mean', 'probability_population_sigma'])
-pprint(summaries)
-from pprint import pprint
-summaries['summary']
-np.exp(0.64)
-
-pls = samples.extract('lambda_population_sigma')['lambda_population_sigma']
-np.mean(pls)
-rl = samples.extract('raw_lambda')['raw_lambda']
-np.mean(rl)
-
-player_stats[['shots', 'games']].head()
-stan_data['games']
-
-az.style.use('arviz-darkgrid')
-az.plot_trace(samples, var_names=['probability'])
-
-stan_data['goals'] > stan_data['shots']
-
-games[games['home_team'] == 'KuPS']
-
-player_stats[player_stats['goals'] > player_stats['shots']]
+lmeans = np.apply_along_axis(np.mean, 0, lambdas)
+pmeans = np.apply_along_axis(np.mean, 0, probs)
+player_expected = pd.DataFrame(
+    lmeans * pmeans, index=player_stats['player_id']
+)
+player_expected_sorted = player_expected.loc[player_ids].values.squeeze()
+cutoff = int(game_data.shape[1] / 2)
+home_player_e = np.apply_along_axis(
+    np.sum,
+    1,
+    player_expected_sorted[game_data][::,0:11]
+)
+away_player_e = np.apply_along_axis(
+    np.sum,
+    1,
+    player_expected_sorted[game_data][::, cutoff::]
+)
+player_es = pd.DataFrame(np.stack((home_player_e, away_player_e), axis=1),
+                         index=game_data_index)
+games = pd.merge(games, player_es, on = 'game_id')
 
