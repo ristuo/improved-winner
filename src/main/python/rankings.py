@@ -2,10 +2,17 @@ from rankit.Table import Table
 import numpy as np
 from rankit.Ranker import MarkovRanker
 
-def make_rankings(games, ranker_start = 30, oos_games = None):
+
+def _set_adv_variables(games):
+    games['home_team_adv'] = (
+        games['home_team_rating'] - games['away_team_rating']
+    )
+    games['home_team_adv_sq'] = np.sign(games['home_team_adv']) * np.power(games['home_team_adv'], 2)
+
+
+def make_rankings(games, oos_games, ranker_start = 30):
     games = games.copy()
-    if oos_games is not None:
-        oos_games = oos_games.copy()
+    oos_games = oos_games.copy()
 
     ds = games[0:ranker_start]
     data = Table(ds, ['home_team', 'away_team', 'home_team_goals', 'away_team_goals'])
@@ -22,20 +29,22 @@ def make_rankings(games, ranker_start = 30, oos_games = None):
     games['home_team_rating'] = np.NaN
     games['away_team_rating'] = np.NaN
 
-    games.loc[0:ranker_start, 'home_team_rating'] = res['home_team_rating']
-    games.loc[0:ranker_start, 'away_team_rating'] = res['away_team_rating']
+
+    games['home_team_rating'][0:ranker_start] = res['home_team_rating']
+    games['away_team_rating'][0:ranker_start] = res['away_team_rating']
+    oos_games['home_team_rating'] = np.NaN
+    oos_games['away_team_rating'] = np.NaN
 
     def set_ranks(ht, at, i, games, crank_dict):
         mean_rating = np.mean(list(crank_dict.values()))
         if ht in crank_dict:
-            games.loc[i,'home_team_rating'] = crank_dict[ht]
+            games['home_team_rating'][i] = crank_dict[ht]
         else:
-            games.loc[i,'home_team_rating'] = mean_rating
+            games['home_team_rating'][i] = mean_rating
         if at in crank_dict:
-            games.loc[i,'away_team_rating'] = crank_dict[at]
+            games['away_team_rating'][i] = crank_dict[at]
         else:
-            games.loc[i,'away_team_rating'] = mean_rating
-
+            games['away_team_rating'][i] = mean_rating
     upto = games.shape[0]
     for i in range(ranker_start, upto):
         ht = str(games['home_team'][i])
@@ -46,11 +55,12 @@ def make_rankings(games, ranker_start = 30, oos_games = None):
         ranker = MarkovRanker(data)
         current_ranks = ranker.rank()[['name', 'rating']]
 
-    if oos_games is not None:
-        for i in range(0, oos_games.shape[0]):
-            ht = str(oos_games['home_team'][i])
-            at = str(oos_games['away_team'][i])
-            set_ranks(ht, at, i, oos_games, crank_dict)
+    for i in range(0, oos_games.shape[0]):
+        ht = str(oos_games['home_team'][i])
+        at = str(oos_games['away_team'][i])
+        set_ranks(ht, at, i, oos_games, crank_dict)
 
+    _set_adv_variables(games)
+    _set_adv_variables(oos_games)
     return games, oos_games
 

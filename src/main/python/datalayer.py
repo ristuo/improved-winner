@@ -1,7 +1,9 @@
 import psycopg2
 import pandas as pd
 import os
+import logging
 import math
+import numpy as np
 
 def _load_conf_from_env():
     username = os.environ["DB_USER"]
@@ -96,6 +98,7 @@ def load_player_stats(tournament):
     else:
         raise RuntimeError("Unknown tournament " + tournament)
 
+
 def _load_vl_player_stats():
   qs = '''
     SELECT
@@ -113,4 +116,123 @@ def _load_vl_player_stats():
   '''
   return _get_as_df(qs)
 
+
+def find_index(row_id, ids_list):
+    try:
+        return ids_list.index(row_id)
+    except ValueError:
+        return None
+
+
+def set_indices(df, index_col, ids_list = None, logger = None):
+    if logger is None:
+        logger = logging.getLogger()
+    if ids_list is None:
+        ids_list = list(set(df[index_col]))
+    result_col_name = index_col + '_index'
+    df.loc[:, result_col_name] = df[index_col].apply(lambda a: find_index(a, ids_list))
+    nrow_before_filtering, _ = df.shape
+    df = df[df[result_col_name].apply(lambda a: not math.isnan(a))]
+    nrow_after_filtering, _ = df.shape
+    if nrow_before_filtering != nrow_after_filtering:
+        logger.warning('Trouble with setting index ' + index_col + ' using ' +
+                        ', '.join(ids_list[0:10]) + ' ..., namely ' +
+                       ' could not find index for ' + str(nrow_before_filtering - nrow_after_filtering) + ' rows!' +
+                       ' They were filtered out.')
+    df[result_col_name] = df[result_col_name].astype(int)
+    return df
+
+
+def make_players_vector(players, expected_length):
+    def paddy(x):
+        res = np.repeat(-1, expected_length)
+        res[0:x.shape[0]] = x
+        return res
+    home_players = paddy(players[players['team_type'] == 'home']['player_id_index'].values)
+    away_players = paddy(players[players['team_type'] == 'away']['player_id_index'].values)
+    return np.concatenate((home_players, away_players))
+
+
+def make_game_data(lineups, expected_players_per_team):
+    game_data = lineups.groupby(['game_id']).apply(lambda a: make_players_vector(a, expected_players_per_team))
+    nrow = game_data.shape[0]
+    ncol = game_data[0].shape[0]
+    game_data_matrix = np.concatenate(game_data.values).reshape((nrow,ncol))
+    return pd.DataFrame(game_data_matrix, index=game_data.index)
+
+
+def make_oos_lineup(row, games, lineups):
+    def find_lineup(team):
+        most_recent_game = games[
+            (games['home_team'] == team).values |
+            (games['away_team'] == team).values
+        ].sort_values('game_date', ascending=False).head(1)
+        most_recent_game_id = str(most_recent_game.index.values[0])
+        lineup = lineups[(lineups['game_id'] == most_recent_game_id).values & (lineups['team'] == team).values]
+        return lineup
+    game_id = str(row['index'])
+    existing = lineups[lineups['game_id'] == game_id]
+    if existing.shape[0] != 0:
+        return existing
+    ht = str(row['home_team'])
+    at = str(row['away_team'])
+    ht_lineup = find_lineup(ht)
+    ht_lineup['team_type'] = 'home'
+    at_lineup = find_lineup(at)
+    at_lineup['team_type'] = 'away'
+    res = pd.concat((ht_lineup, at_lineup))
+    res['game_id'] = game_id
+    res['team_type']
+    return res
+
+
+def make_oos_lineups(oos_games, games, lineups):
+    res = oos_games.apply(lambda a: make_oos_lineup(a, games, lineups), axis=1)
+    res = pd.concat(list(res))
+    return pd.DataFrame(res.values, columns=res.columns)
+
+def make_games_data(sport_name, tournament, max_oos_games, logger = None):
+    """
+    Finds games (separated to out of sample ones and already player out ones) and lineups.
+
+    This has to be a single function because lineups are needed for filtering games
+    :param sport_name: "Jalkapallo" or "Jääkiekko".
+    :param tournament: "Veikkausliiga" or "Liiga".
+    :param logger: A logger.
+    :return: games, oos_games and lineups, all being pandas dataframes.
+    """
+    lineups = load_lineups(tournament)
+    all_games, oos = load_games(sport_name = sport_name, tournament=tournament)
+    teams = list(set(all_games['home_team']).union(all_games['away_team']))
+    oos_games = oos[0:(max_oos_games - 1)]
+    all_games = set_indices(all_games, 'home_team', teams)
+    all_games = set_indices(all_games, 'away_team', teams)
+    oos_games = set_indices(oos_games, 'home_team', teams)
+    oos_games = set_indices(oos_games, 'away_team', teams)
+    oos_games = oos_games.reset_index()
+    game_ids = set(all_games['game_id']).intersection(set(lineups['game_id']))
+    games = all_games[all_games['game_id'].isin(game_ids)]
+    games = games.reset_index()
+    lineups = lineups[lineups['game_id'].isin(game_ids)]
+    lineups = set_indices(lineups, 'player_id', list(set(lineups['player_id'])))
+    lineups.reset_index()
+    return (games, oos_games, lineups)
+
+
+def make_player_stats(tournament, player_ids):
+    """
+    Load player statistics, make sure goals at least equals shots and set indices according to players in lineups.
+
+    Player not in lineups won't be included.
+    :param tournament:
+    :param lineups:
+    :return:
+    """
+    player_stats = load_player_stats(tournament)
+    player_stats = set_indices(player_stats, 'player_id', player_ids)
+    player_stats.set_index('player_id', inplace=True)
+    player_stats = player_stats[player_stats['player_id_index'].apply(lambda a: a is not None)]
+    mask = player_stats['goals'] > player_stats['shots']
+    player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
+    return player_stats
 
