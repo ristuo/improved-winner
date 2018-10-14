@@ -37,6 +37,10 @@ def _get_as_df(qs):
         conn.close()
     return pd.DataFrame(res, columns=colnames)
 
+def _set_liiga_game_id(df):
+    df['game_id'] = df['game_set'] + '_' + df['season'] + '_' + df['game_id']
+
+
 def load_games(sport_name, tournament):
     qs = '''
         SELECT
@@ -49,6 +53,8 @@ def load_games(sport_name, tournament):
         ORDER BY game_date
     '''.format(sport_name, tournament)
     res = _get_as_df(qs)
+    if tournament == 'Liiga' and sport_name == 'Jääkiekko':
+        _set_liiga_game_id(res)
     res['home_team'] = res['home_team'].apply(lambda s: s.strip())
     res['away_team'] = res['away_team'].apply(lambda s: s.strip())
     games = res[res['home_team_goals'].apply(lambda a: not math.isnan(a))]
@@ -69,7 +75,10 @@ def load_lineups(tournament):
         WHERE
             league='{}'
         '''.format(tournament)
-    return _get_as_df(qs)
+    res = _get_as_df(qs)
+    if tournament == 'Liiga':
+       _set_liiga_game_id(res)
+    return res
 
 def _load_liiga_player_stats():
     qs = '''
@@ -87,7 +96,8 @@ def _load_liiga_player_stats():
       nimi,
       player_id
     '''
-    return _get_as_df(qs)
+    res = _get_as_df(qs)
+    return res
 
 
 def load_player_stats(tournament):
@@ -192,7 +202,7 @@ def make_oos_lineups(oos_games, games, lineups):
     res = x.apply(lambda a: make_oos_lineup(a, games, lineups), axis=1)
     res = pd.concat(list(res))
     res.set_index('game_id', inplace=True)
-    return pd.DataFrame(res.values, columns=res.columns)
+    return res
 
 def make_games_data(sport_name, tournament, max_oos_games, logger = None):
     """

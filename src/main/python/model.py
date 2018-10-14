@@ -8,9 +8,9 @@ from bnb import find_probabilities
 
 np.set_printoptions(linewidth=300)
 
-tournament = 'Veikkausliiga'
-sport_name = 'Jalkapallo'
-expected_players_per_team = 11
+tournament = 'Liiga'
+sport_name = 'Jääkiekko'
+expected_players_per_team = 42
 max_oos_games = 15
 
 games, oos_games, lineups = make_games_data(
@@ -22,11 +22,13 @@ games.set_index('game_id', inplace=True)
 oos_games.set_index('game_id', inplace=True)
 game_data = make_game_data(lineups, expected_players_per_team=expected_players_per_team)
 oos_lineups = make_oos_lineups(oos_games, games, lineups)
+oos_lineups['game_id'] = oos_lineups.index
 oos_game_data = make_game_data(oos_lineups, expected_players_per_team=expected_players_per_team)
 
 player_stats = make_player_stats(tournament, list(set(lineups['player_id'])))
 simple_model = SimplePlayerModel(model_name='ebin_Malli', player_stats=player_stats)
 simple_model.load_or_fit()
+simple_model.save()
 
 team_expectations = simple_model.find_team_expectations(game_data)
 oos_team_expectations = simple_model.find_team_expectations(oos_game_data)
@@ -34,8 +36,6 @@ games_with_rank, oos_games_with_rank = make_rankings(games, oos_games)
 games_with_rank = games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 oos_games_with_rank = oos_games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 
-
-games_with_rank.head()
 dataset = games.join(team_expectations).join(games_with_rank)
 oos_dataset = oos_games.join(oos_team_expectations).join(oos_games_with_rank)
 results = find_probabilities(dataset, oos_dataset)

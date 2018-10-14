@@ -123,7 +123,8 @@ def bnb_predict(dataset, oos_dataset, convergence_epsilon = 0.01, iterations = 5
             )
             if i % 5000 == 0:
                 costs.append(res[0])
-                msg = ("Iteration: " + str(i) + ", cost: " + str((-1) * res[0]))
+                msg = ("Iteration: " + str(i) + "/" + str(iterations) +
+                       ', cost: ' + str((-1) * res[0]))
                 logger.info(msg)
             last_5_costs = costs[-5:]
             if len(costs) > 4 and np.abs(max(last_5_costs) - min(last_5_costs)) < convergence_epsilon:
@@ -145,11 +146,16 @@ def bnb_predict(dataset, oos_dataset, convergence_epsilon = 0.01, iterations = 5
 
 def find_probabilities(dataset, oos_dataset):
     mu_hat, oos_mu_hat, phi_hat, a_hat = bnb_predict(dataset, oos_dataset)
-    res = {}
+    res = []
     game_ids = oos_dataset.index
-    for i in range(0, dataset.shape[0]):
-        res[game_ids[i]] = find_game_probabilities(oos_mu_hat[i,::],
-                                                   a_hat, phi_hat)
-    return res
+    for i in range(0, oos_dataset.shape[0]):
+        probs = find_game_probabilities(oos_mu_hat[i,::],
+                                        a_hat, phi_hat)
+        x = pd.DataFrame(probs, columns = ['home_team_goals', 'away_team_goals', 'p'])
+        x['home_team_goals'] = x['home_team_goals'].apply(lambda a: int(a))
+        x['away_team_goals'] = x['away_team_goals'].apply(lambda a: int(a))
+        x['game_id'] = game_ids[i]
+        res.append(x)
+    return pd.concat(res)
 
 
