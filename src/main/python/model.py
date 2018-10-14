@@ -4,6 +4,7 @@ from dummies import make_team_dummies
 from rankings import make_rankings
 import numpy as np
 from datalayer import make_games_data, make_game_data, make_oos_lineups, make_player_stats
+from bnb import find_probabilities
 
 np.set_printoptions(linewidth=300)
 
@@ -21,8 +22,6 @@ games.set_index('game_id', inplace=True)
 oos_games.set_index('game_id', inplace=True)
 game_data = make_game_data(lineups, expected_players_per_team=expected_players_per_team)
 oos_lineups = make_oos_lineups(oos_games, games, lineups)
-oos_games.head()
-games.head()
 oos_game_data = make_game_data(oos_lineups, expected_players_per_team=expected_players_per_team)
 
 player_stats = make_player_stats(tournament, list(set(lineups['player_id'])))
@@ -38,17 +37,6 @@ oos_games_with_rank = oos_games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 
 games_with_rank.head()
 dataset = games.join(team_expectations).join(games_with_rank)
-dataset.columns
-dataset.iloc[502]
-dataset[['home_team', 'away_team', 'home_team_adv']].tail(10)
-dataset.shape
+oos_dataset = oos_games.join(oos_team_expectations).join(oos_games_with_rank)
+results = find_probabilities(dataset, oos_dataset)
 
-games['home_team'].unique().shape
-
-ratings
-ratings.shape
-team_dummies.shape
-goal_expectations.shape
-
-goal_expectations
-ratings

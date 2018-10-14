@@ -170,7 +170,7 @@ def make_oos_lineup(row, games, lineups):
         most_recent_game_id = str(most_recent_game.index.values[0])
         lineup = lineups[(lineups['game_id'] == most_recent_game_id).values & (lineups['team'] == team).values]
         return lineup
-    game_id = str(row['index'])
+    game_id = str(row['game_id'])
     existing = lineups[lineups['game_id'] == game_id]
     if existing.shape[0] != 0:
         return existing
@@ -187,8 +187,11 @@ def make_oos_lineup(row, games, lineups):
 
 
 def make_oos_lineups(oos_games, games, lineups):
-    res = oos_games.apply(lambda a: make_oos_lineup(a, games, lineups), axis=1)
+    x = oos_games.copy()
+    x['game_id'] = x.index
+    res = x.apply(lambda a: make_oos_lineup(a, games, lineups), axis=1)
     res = pd.concat(list(res))
+    res.set_index('game_id', inplace=True)
     return pd.DataFrame(res.values, columns=res.columns)
 
 def make_games_data(sport_name, tournament, max_oos_games, logger = None):
