@@ -79,18 +79,26 @@ class SimplePlayerModel:
             self.fit()
         return self
 
+    # todo: parempi olisi käyttää joinia, vaikka näyttää toimivan 14.10.
     def find_team_expectations(self, game_data):
         self._check_samples()
         lambdas = self.samples.extract('lambda')['lambda']
         probs = self.samples.extract('probability')['probability']
         lmeans = np.apply_along_axis(np.mean, 0, lambdas)
         pmeans = np.apply_along_axis(np.mean, 0, probs)
-        player_ids = self.player_stats.index
+        player_id_indices = self.player_stats['player_id_index']
+
         player_expected = pd.DataFrame(
-            lmeans * pmeans, index=player_ids
+            lmeans * pmeans, index=player_id_indices
         )
-        player_expected_sorted = player_expected.loc[player_ids].values.squeeze()
-        cutoff = int(game_data.values.shape[1] / 2)
+
+        mean_expected = float(np.mean(player_expected))
+        not_in_model = game_data > player_expected.shape[0]
+        game_data[not_in_model] = player_expected.shape[0]
+        player_expected_sorted = player_expected.sort_index().values.squeeze()
+        player_expected_sorted = np.append(player_expected_sorted, mean_expected)
+
+        cutoff = int(game_data.values.shape[1]/2)
         home_player_e = np.apply_along_axis(
             np.sum,
             1,

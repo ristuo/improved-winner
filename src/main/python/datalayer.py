@@ -86,14 +86,12 @@ def _load_liiga_player_stats():
       sum(shots) as shots,
       sum(goals) as goals,
       sum(games) as games,
-      player_name as nimi,
       player_id
     FROM
       liiga_player_stats
     WHERE
       season > '2015'
     GROUP BY
-      nimi,
       player_id
     '''
     res = _get_as_df(qs)
@@ -232,7 +230,7 @@ def make_games_data(sport_name, tournament, max_oos_games, logger = None):
     return (games, oos_games, lineups)
 
 
-def make_player_stats(tournament, player_ids):
+def make_player_stats(tournament):
     """
     Load player statistics, make sure goals at least equals shots and set indices according to players in lineups.
 
@@ -242,9 +240,7 @@ def make_player_stats(tournament, player_ids):
     :return:
     """
     player_stats = load_player_stats(tournament)
-    player_stats = set_indices(player_stats, 'player_id', player_ids)
     player_stats.set_index('player_id', inplace=True)
-    player_stats = player_stats[player_stats['player_id_index'].apply(lambda a: a is not None)]
     mask = player_stats['goals'] > player_stats['shots']
     player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
     return player_stats

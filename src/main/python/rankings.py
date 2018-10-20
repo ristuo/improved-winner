@@ -1,7 +1,6 @@
 from rankit.Table import Table
 import numpy as np
-from rankit.Ranker import MarkovRanker
-
+from rankit.Ranker import MarkovRanker, KeenerRanker, EloRanker
 
 def _set_adv_variables(games):
     games['home_team_adv'] = (
@@ -11,13 +10,18 @@ def _set_adv_variables(games):
 
 
 def make_rankings(games, oos_games, ranker_start = 30):
-    games = games.copy()
-    oos_games = oos_games.copy()
+    df = games.copy()
+    oos_df = oos_games.copy()
+    df['time'] = np.arange(0,df.shape[0])
 
-    ds = games[0:ranker_start]
-    data = Table(ds, ['home_team', 'away_team', 'home_team_goals', 'away_team_goals'])
-    ranker = MarkovRanker(data)
-    current_ranks = ranker.rank()
+    ds = df[0:ranker_start]
+    data = Table(ds, ['home_team', 'away_team', 'home_team_goals', 'away_team_goals'], timecol='time')
+
+    #ranker = MarkovRanker(data)
+    #ranker = KeenerRanker(data)
+    ranker_to_use = EloRanker
+    ranker = ranker_to_use(data)
+    current_ranks = ranker.rank(K=22)
     current_ranks = current_ranks[['name', 'rating']]
     res = ds.merge(current_ranks, how='left', left_on='home_team', right_on='name')
     res = res.rename(columns={'rating': 'home_team_rating'})
@@ -26,14 +30,13 @@ def make_rankings(games, oos_games, ranker_start = 30):
     res = res.rename(columns={'rating': 'away_team_rating'})
     res = res.drop('name', axis=1)
 
-    games['home_team_rating'] = np.NaN
-    games['away_team_rating'] = np.NaN
+    df['home_team_rating'] = np.NaN
+    df['away_team_rating'] = np.NaN
 
-
-    games['home_team_rating'][0:ranker_start] = res['home_team_rating']
-    games['away_team_rating'][0:ranker_start] = res['away_team_rating']
-    oos_games['home_team_rating'] = np.NaN
-    oos_games['away_team_rating'] = np.NaN
+    df['home_team_rating'][0:ranker_start] = res['home_team_rating']
+    df['away_team_rating'][0:ranker_start] = res['away_team_rating']
+    oos_df['home_team_rating'] = np.NaN
+    oos_df['away_team_rating'] = np.NaN
 
     def set_ranks(ht, at, i, games, crank_dict):
         mean_rating = np.mean(list(crank_dict.values()))
@@ -46,21 +49,23 @@ def make_rankings(games, oos_games, ranker_start = 30):
         else:
             games['away_team_rating'][i] = mean_rating
     upto = games.shape[0]
+    i = 30
     for i in range(ranker_start, upto):
         ht = str(games['home_team'][i])
         at = str(games['away_team'][i])
         crank_dict = dict(list(current_ranks.values))
-        set_ranks(ht, at, i, games, crank_dict)
-        data = Table(games[0:i], ['home_team', 'away_team', 'home_team_goals', 'away_team_goals'])
-        ranker = MarkovRanker(data)
+        set_ranks(ht, at, i, df, crank_dict)
+        data = Table(df[0:i], ['home_team', 'away_team', 'home_team_goals', 'away_team_goals'], timecol='time')
+        ranker = ranker_to_use(data)
         current_ranks = ranker.rank()[['name', 'rating']]
 
-    for i in range(0, oos_games.shape[0]):
-        ht = str(oos_games['home_team'][i])
-        at = str(oos_games['away_team'][i])
-        set_ranks(ht, at, i, oos_games, crank_dict)
+    for i in range(0, oos_df.shape[0]):
+        ht = str(oos_df['home_team'][i])
+        at = str(oos_df['away_team'][i])
+        set_ranks(ht, at, i, oos_df, crank_dict)
 
-    _set_adv_variables(games)
-    _set_adv_variables(oos_games)
-    return games, oos_games
 
+    current_ranks
+    _set_adv_variables(df)
+    _set_adv_variables(oos_df)
+    return df, oos_df
