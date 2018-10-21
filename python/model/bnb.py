@@ -1,4 +1,3 @@
-import tensorflow as tf
 from pystan import StanModel
 import pytz
 import numpy as np
@@ -109,7 +108,7 @@ def bnb_stan(dataset, oos_dataset):
     ]
     samples = stan_model.sampling(
         stan_data,
-        iter=1000,
+        iter=6000,
         chains=4,
         refresh=1,
         init=init_list,

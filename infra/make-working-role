@@ -1,0 +1,19 @@
+#!/bin/bash
+
+aws --profile=admin-account iam create-role\
+  --role-name='lambda_vpc_l_lineups'\
+  --description='Allows a lambda to write player stats to postgre'\
+  --assume-role-policy-document='{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Principal": {"Service": ["lambda.amazonaws.com"]},
+            "Effect": "Allow",
+            "Action": [
+                "sts:AssumeRole"
+            ]
+        }
+    ]
+  }'
+
+

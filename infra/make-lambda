@@ -1,0 +1,19 @@
+#!/bin/bash
+aws --profile=admin-account\
+  lambda create-function\
+  --function-name='improved-winner-liiga-lineups'\
+  --runtime=python3.6\
+  --code=S3Bucket='ristuo-testaus,S3Key=lambda-testailu/esim.py.zip'\
+  --timeout=300\
+  --handler=games.sl_handler\
+  --vpc-config='SubnetIds=subnet-025cc24f,SecurityGroupIds=sg-0b3dfc63'\
+  --timeout=300\
+  --role='arn:aws:iam::491463377194:role/lambda_vpc_l_lineups'\
+  --environment='{
+    "Variables": {
+      "DB_HOST": "improved-winner.ce172ffedvvk.eu-west-2.rds.amazonaws.com",
+      "DB_USERNAME": "vl_lineups",
+      "DB_PASSWORD": "supersalainenerikoispassu",
+      "LOG_LEVEL": "DEBUG"
+    }
+  }'

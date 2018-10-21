@@ -244,9 +244,9 @@ def write_preds_to_db(oos_dataset, mean_preds, sport_name, tournament, logger=No
     rows = []
     newest_dl_time = np.max(oos_dataset['dl_time'])
     model_name = 'BNB1-v1'
+    upload_time = datetime.now(tz)
     for game_index in range(0, oos_dataset.shape[0]):
         game = oos_dataset.iloc[game_index]
-        upload_time = datetime.now(tz)
         game_id = game.name
         predictions_matrix = mean_preds[game_index, ::, ::]
         n, m = predictions_matrix.shape

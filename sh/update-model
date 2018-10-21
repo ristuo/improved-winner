@@ -1,3 +1,0 @@
-#!/bin/bash
-. secrets/set-db-conf-to-env.sh
-python3 python/model/main.py
