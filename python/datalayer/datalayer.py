@@ -37,10 +37,6 @@ def _get_as_df(qs):
         conn.close()
     return pd.DataFrame(res, columns=colnames)
 
-def _set_liiga_game_id(df):
-    df['game_id'] = df['game_set'] + '_' + df['season'] + '_' + df['game_id']
-
-
 def load_games(sport_name, tournament):
     qs = '''
         SELECT
@@ -53,8 +49,6 @@ def load_games(sport_name, tournament):
         ORDER BY game_date
     '''.format(sport_name, tournament)
     res = _get_as_df(qs)
-    if tournament == 'Liiga' and sport_name == 'Jääkiekko':
-        _set_liiga_game_id(res)
     res['home_team'] = res['home_team'].apply(lambda s: s.strip())
     res['away_team'] = res['away_team'].apply(lambda s: s.strip())
     games = res[res['home_team_goals'].apply(lambda a: not math.isnan(a))]

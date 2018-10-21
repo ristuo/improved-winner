@@ -1,13 +1,15 @@
 import tensorflow as tf
 from pystan import StanModel
 import logging
-import matplotlib.pyplot as plt
+from datetime import datetime
+import pytz
+tz=pytz.timezone('Europe/Helsinki')
 import numpy as np
-from scipy.special import gamma, loggamma
+from scipy.special import loggamma
 import pandas as pd
-from keras.utils import to_categorical
-from tensorflow.train import GradientDescentOptimizer, AdamOptimizer, AdagradOptimizer
-from dummies import make_team_dummies
+import pgutil.db
+from tensorflow.train import AdamOptimizer
+from model.dummies import make_team_dummies
 np.set_printoptions(precision=2, suppress=True)
 
 def bnb_prob(y, mu, a, phi):
@@ -67,7 +69,6 @@ def bnb_stan(dataset, oos_dataset):
     oos_ratings_data = oos_ratings_data.squeeze()
     ratings_data, oos_ratings_data = normalize(ratings_data, oos_ratings_data)
     expectations_data, oos_expectations_data = normalize(expectations_data, oos_expectations_data)
-    #ratings_data = ratings_data[::,0:1]
     home_team_dummies = team_dummies_data[::,0, ::]
     away_team_dummies = team_dummies_data[::,1, ::]
     stan_data = {
@@ -87,7 +88,7 @@ def bnb_stan(dataset, oos_dataset):
         'oos_ratings': oos_ratings_data
     }
     stan_model = StanModel(
-        'src/main/stan/game_model.stan'
+        '/home/risto/Code/hobbies/veikkausliiga/src/main/stan/game_model.stan'
     )
     init_list = [
         {
@@ -117,32 +118,43 @@ def bnb_stan(dataset, oos_dataset):
         control={'adapt_delta': 0.99, 'max_treedepth': 15}
     )
     preds = samples['predicted_probabilities']
-    oos_mus = samples['oos_mu']
-    np.mean(oos_mus, axis=0)
-    i = 5
-    oos_dataset.iloc[i]
-    oos_dataset[['home_team', 'away_team']]
-    x = mean_preds[i,::,::]
-    np.sum(np.logical_not(np.isnan(preds)))
-    np.sum((np.isnan(preds)))
-    mean_preds = np.mean(preds, axis=0)
-    mean_preds
-    mean_preds.shape
-    mean_preds.shape
-    p_draw = np.sum(np.diagonal(x))
-    np.sum(np.tril(x)) - p_draw
-    p_draw
-    np.sum(np.triu(x)) - p_draw
-    x[0:3,0:3]
-    samples['team_attack_beta']
-    samples
-    x
-    np.sum(np.sum(team_dummies_data, axis=1),axis=0)
+    mean_preds = np.mean(preds,axis=0)
+    return samples, mean_preds
 
+def write_preds_to_db(oos_dataset, mean_preds, logger=None):
+    if logger is None:
+        logger = logging.getLogger()
+    rows = []
+    newest_dl_time = np.max(oos_dataset['dl_time'])
+    model_name = 'BNB1-v1'
+    for game_index in range(0, oos_dataset.shape[0]):
+        game = oos_dataset.iloc[game_index]
+        upload_time = datetime.now(tz)
+        game_id = game.name
+        predictions_matrix = mean_preds[game_index, ::, ::]
+        n, m = predictions_matrix.shape
+        for i in range(0, n):
+            for j in range(0, m):
+                home_team_score = i
+                away_team_score = j
+                probability = predictions_matrix[i, j]
+                d = {
+                    'upload_time': upload_time,
+                    'game_id': game_id,
+                    'newest_dl_time': newest_dl_time,
+                    'home_team_score': home_team_score,
+                    'away_team_score': away_team_score,
+                    'probability': probability,
+                    'model_name': model_name
+                }
+                rows.append(d)
+    conn = pgutil.db.get_db_connection('betting')
+    try:
+        pgutil.db.write_to_table(conn=conn, table_name='predictions', logger=logger, dict_list=rows)
+    finally:
+        conn.close()
+        game_id
 
-    oos_dataset.iloc[0]
-    np.diagonal(mean)
-    np.sum(np.sum(mean_preds,axis=2),axis=1)
 
 def bnb_predict(dataset, oos_dataset, convergence_epsilon = 0.01, iterations = 250000, logger = None):
     if logger is None:
@@ -278,5 +290,4 @@ def find_probabilities(dataset, oos_dataset):
         x['game_id'] = game_ids[i]
         res.append(x)
     return pd.concat(res)
-
 
