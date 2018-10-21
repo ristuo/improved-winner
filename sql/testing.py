@@ -1,9 +1,24 @@
+import psycopg2
+import time
+from psycopg2.extensions import AsIs
+import os
+import sys
+import pytz
+host = os.environ['DB_HOST']
+user = os.environ['DB_USER']
+password = os.environ['DB_PASSWORD']
+port = os.environ['DB_PORT']
+tz = pytz.timezone("Europe/Helsinki")
+
+
+
+
+
 import requests
 import os.path
 from time import sleep
 from csv import DictWriter
 from datetime import datetime
-import pprint
 import logging
 import json
 from pprint import pprint
@@ -16,7 +31,7 @@ BASIC_HEADERS = {
 SLEEPY_TIME = 0.0
 
 def _parse_dtm(stampy):
-    return datetime.fromtimestamp(float(stampy)/1000)
+    return datetime.fromtimestamp(float(stampy)/1000, tz = tz)
 
 class GameOdds:
     def __init__(self, short_name, open_time, close_time, name, time, sport_name, tournament_name, category_name, odds,
@@ -71,7 +86,7 @@ def _download_games(logger, game_names = 'EBET'):
 
 def get_games(logger, game_names = 'EBET'):
     games = _download_games(logger, game_names)['draws']
-    return _parse_games(logger, games, datetime.now())
+    return _parse_games(logger, games, datetime.now(tz = tz))
 
 
 def _download_event_sport(logger, event_id):
@@ -83,7 +98,7 @@ def _parse_games(logger, games, dl_time):
     res = []
     i = 1
     logger.info("Fetched " + str(len(games)) + " games, starting to parse.")
-    for game in games:
+    for game in games[1:10]:
         gid = str(i) + "/" + str(len(games))
         logger.info("Trying to parse game " + gid)
         i += 1
@@ -134,34 +149,50 @@ def _parse_games(logger, games, dl_time):
 
     return res
 
-def save_games_as_csv(games, filepath = "games.csv", overwrite = False):
-    if not overwrite:
-        if os.path.exists(filepath):
-            writemode = "a"
-            write_header = False
-        else:
-            writemode = "w"
-            write_header = True
-    else:
-        writemode = "w"
-        write_header = True
-    with open(filepath, writemode) as fp:
-        writer = DictWriter(fp, games[0].to_dictionaries()[0].keys())
-        if write_header:
-            writer.writeheader()
-        for game in games:
-            for d in game.to_dictionaries():
-                writer.writerow(d)
+
 
 
 logger = logging.getLogger("Veikkaus API logger")
-sh = logging.StreamHandler()
 logger.setLevel(logging.INFO)
-log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-sh.setFormatter(log_format)
-logger.addHandler(sh)
+logger.info("moi!")
 games = get_games(logger)
-dirpath = 'data/odds/{}'.format(datetime.now().strftime("%Y-%m-%d"))
-os.makedirs(dirpath, exist_ok=True)
-save_games_as_csv(games, dirpath + "/games.csv", overwrite = False)
+
+
+
+
+
+
+
+
+
+
+
+conn = psycopg2.connect(
+  host=host,
+  database="betting", 
+  user=user, 
+  password=password
+)
+cursor = conn.cursor()
+
+print("starting to insert")
+try:
+  for game in games:
+    for odds in game.to_dictionaries():
+      x = odds.copy()
+      x['agency'] = 'Veikkaus'
+      columns = x.keys()
+      values = [x[k] for k in columns]
+      insert_statement = 'insert into odds (%s) values %s'
+      cursor.execute(insert_statement, (AsIs(','.join(columns)), tuple(values)))
+  conn.commit()
+finally:
+  cursor.close()
+  conn.close()
+
+
+
+
+
+
 
