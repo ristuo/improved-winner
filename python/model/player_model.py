@@ -39,7 +39,7 @@ class SimplePlayerModel:
 
     def fit(self, iterations=5000, control=default_control):
         self.stan_model = StanModel(
-            '/home/risto/Code/hobbies/veikkausliiga/src/main/stan/player_scoring.stan'
+            '../stan/player_scoring.stan'
         )
         self.samples = self.stan_model.sampling(
             self.stan_data,

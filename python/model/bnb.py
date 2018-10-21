@@ -85,7 +85,7 @@ def bnb_stan(dataset, oos_dataset):
         'oos_ratings': oos_ratings_data
     }
     stan_model = StanModel(
-        '/home/risto/Code/hobbies/veikkausliiga/src/main/stan/game_model.stan'
+        '../stan/game_model.stan'
     )
     init_list = [
         {
