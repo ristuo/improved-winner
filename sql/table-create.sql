@@ -76,3 +76,43 @@ create table veikkausliiga_player_stats (
   primary key(player_id, season, sport_name)
 );
 
+create table liiga_player_stats (
+  dl_time timestamp with time zone,
+  alivoima_goals integer,
+  avg_seconds_played_per_game integer,
+  games integer,
+  goal_passes integer,
+  goals integer,
+  minuspoint integer,
+  opening_pct float,
+  openings integer,
+  penalty_minutes integer,
+  player_id varchar(100),
+  player_name varchar(100),
+  plusminus_difference integer,
+  pluspoints integer,
+  points integer,
+  position varchar(100),
+  raw_row_number varchar(100),
+  season varchar(100),
+  shot_percentage float,
+  shots integer,
+  sport_name varchar(100),
+  team_name varchar(100),
+  tournament_name varchar(100),
+  winning_goals integer,
+  ylivoima_goals integer,
+  primary key(player_id, season, sport_name)
+);
+
+create table predictions (
+  upload_time timestamp with time zone,
+  game_id varchar(100),
+  newest_dl_time timestamp with time zone,
+  home_team_score integer,
+  away_team_score integer,
+  probability float,
+  tournament varchar(100),
+  sport_name varchar(100),
+  model_name varchar(200)
+)
