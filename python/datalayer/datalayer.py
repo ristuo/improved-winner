@@ -1,4 +1,5 @@
 import psycopg2
+import pgutil.db
 import pandas as pd
 import os
 import logging
@@ -238,4 +239,39 @@ def make_player_stats(tournament):
     mask = player_stats['goals'] > player_stats['shots']
     player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
     return player_stats
+
+
+def write_preds_to_db(oos_dataset, mean_preds, logger=None):
+    if logger is None:
+        logger = logging.getLogger()
+    rows = []
+    newest_dl_time = np.max(oos_dataset['dl_time'])
+    model_name = 'BNB1-v1'
+    for game_index in range(0, oos_dataset.shape[0]):
+        game = oos_dataset.iloc[game_index]
+        upload_time = datetime.now(tz)
+        game_id = game.name
+        predictions_matrix = mean_preds[game_index, ::, ::]
+        n, m = predictions_matrix.shape
+        for i in range(0, n):
+            for j in range(0, m):
+                home_team_score = i
+                away_team_score = j
+                probability = predictions_matrix[i, j]
+                d = {
+                    'upload_time': upload_time,
+                    'game_id': game_id,
+                    'newest_dl_time': newest_dl_time,
+                    'home_team_score': home_team_score,
+                    'away_team_score': away_team_score,
+                    'probability': probability,
+                    'model_name': model_name
+                }
+                rows.append(d)
+    conn = pgutil.db.get_db_connection('betting')
+    try:
+        pgutil.db.write_to_table(conn=conn, table_name='predictions', logger=logger, dict_list=rows)
+    finally:
+        conn.close()
+        game_id
 
