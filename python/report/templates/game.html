@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block header %}
+{% endblock %}
+
+{% block content %}
+
+    <h1>{{game_id}}</h1>
+
+    <div class="col-lg-6">
+        <table class="table">
+            <thead class="thead-dark">
+                <tr>
+                    <th></th>
+                    {% for i in colrange %}
+                        <th>{{i}}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for i in rowrange %}
+                    <tr>
+                        <td>{{i}}</td>
+                        {% for j in colrange %}
+                            <td>
+                                {{'{0:.3f}'.format(pmat.loc[i, j]['probability'])}}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="col-lg-12">
+        <img src="/plots/jpmf-plot/{{game_id}}">
+    </div>
+{% endblock %}

@@ -55,6 +55,31 @@ def load_games(sport_name, tournament):
     oos = res[res['home_team_goals'].apply(lambda a: math.isnan(a))]
     return games, oos
 
+def load_game_predictions(tournament, sport_name, game_id, conn=None):
+    qs = '''
+        SELECT
+            *
+        FROM
+            newest_predictions
+        WHERE
+            tournament='{}' AND
+            sport_name='{}' AND
+            game_id='{}'
+    '''.format(tournament, sport_name, game_id)
+    return get_as_df('betting', qs, conn)
+
+def load_predictions():
+    qs = '''
+        SELECT
+            *
+        FROM 
+            predictions_odds
+        ORDER BY
+            game_date,
+            game_id
+    '''
+    return get_as_df('betting', qs)
+
 def load_lineups(tournament):
     qs = '''
         SELECT 

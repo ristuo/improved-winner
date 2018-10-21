@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block header %}
+{% endblock %}
+
+{% block content %}
+<h1>
+ Newest predictions and odds
+</h1>
+
+<table class="table">
+    <thead class="thead-dark">
+        <tr>
+            <th></th>
+            {% for k in keys %}
+                <th>{{k}}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tobody>
+        {% for prediction in predictions %}
+            {% if prediction['recommended_bet'] %}
+                <tr class="table-secondary">
+            {% elif prediction['recommended_bet'] > 1 %}
+                <tr class="table-success">
+            {% else  %}
+                <tr>
+            {% endif %}
+                <td><a href="/game/{{prediction['game_id']}}">See extended analysis</a></td>
+                {% for k in keys %}
+                <td>
+                    {% if prediction[k] %}
+                        {{prediction[k]}}
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+        {% endfor %}
+    </tobody>
+</table>
+{% endblock %}
