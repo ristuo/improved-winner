@@ -61,7 +61,7 @@ functions {
       print(theta);
       print("c");
       print(c);
-      raw_frt = -0.995;
+      raw_frt = -0.999995;
     } 
     frt = log1p(raw_frt);
     return exp(sum(fst - snd + trd) + frt);

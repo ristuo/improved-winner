@@ -1,42 +1,41 @@
-import psycopg2
 import pgutil.db
 import pandas as pd
-import os
+from datetime import datetime
+from pytz import timezone
 import logging
 import math
 import numpy as np
+from pgutil.db import get_db_connection, get_as_df
 
-def _load_conf_from_env():
-    username = os.environ["DB_USER"]
-    password = os.environ["DB_PASSWORD"]
-    host = os.environ["DB_HOST"]
-    dbname = os.environ["DB_NAME"]
-    port = int(os.environ['DB_PORT'])
-    return {
-        'user': username,
-        'password': password,
-        'host': host,
-        'database': dbname,
-        'port': port
-    }
+tz = timezone('Europe/Helsinki')
 
-def _get_db_connection():
-    conf = _load_conf_from_env()
-    conn = psycopg2.connect(**conf)
-    return conn
 
-def _get_as_df(qs):
-    conn = _get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(qs)
-        res = cursor.fetchall()
-        colnames = [desc[0] for desc in cursor.description]
-    finally:
-        if cursor is not None:
-            cursor.close()
-        conn.close()
-    return pd.DataFrame(res, columns=colnames)
+def load_predictions_and_odds(sport_name, tournament):
+    qs = '''
+        select 
+                game_set, 
+                game_id, 
+                event_id, 
+                games.game_date, 
+                home_team, 
+                away_team, 
+                name, 
+                odds, 
+                x.sport_name, 
+                x.dl_time  
+        from games
+        inner join 
+                (select date(time) as game_date, event_id, sport_name, dl_time, tournament_name, event_name, name, odds from odds) x 
+        on
+                x.game_date = games.game_date and
+                x.sport_name = games.sport_name and
+                x.tournament_name = games.tournament and
+                x.event_name = concat(games.home_team, ' - ', games.away_team)
+         where games.game_date < date('2018-10-22')
+        order by 
+                game_id, name, dl_time;
+    '''
+
 
 def load_games(sport_name, tournament):
     qs = '''
@@ -49,7 +48,7 @@ def load_games(sport_name, tournament):
             tournament='{}'
         ORDER BY game_date
     '''.format(sport_name, tournament)
-    res = _get_as_df(qs)
+    res = get_as_df('betting', qs)
     res['home_team'] = res['home_team'].apply(lambda s: s.strip())
     res['away_team'] = res['away_team'].apply(lambda s: s.strip())
     games = res[res['home_team_goals'].apply(lambda a: not math.isnan(a))]
@@ -70,9 +69,7 @@ def load_lineups(tournament):
         WHERE
             league='{}'
         '''.format(tournament)
-    res = _get_as_df(qs)
-    if tournament == 'Liiga':
-       _set_liiga_game_id(res)
+    res = get_as_df('betting', qs)
     return res
 
 def _load_liiga_player_stats():
@@ -89,7 +86,7 @@ def _load_liiga_player_stats():
     GROUP BY
       player_id
     '''
-    res = _get_as_df(qs)
+    res = get_as_df('betting', qs)
     return res
 
 
@@ -103,21 +100,21 @@ def load_player_stats(tournament):
 
 
 def _load_vl_player_stats():
-  qs = '''
+    qs = '''
     SELECT
-      sum(shots) as shots,
-      sum(goals) as goals,
-      sum(games) as games,
-      nimi,
-      player_id
+        sum(shots) as shots,
+        sum(goals) as goals,
+        sum(games) as games,
+        nimi,
+        player_id
     FROM veikkausliiga_player_stats
     WHERE
-      season > '2015'
+        season > '2015'
     GROUP BY
-      nimi,
-      player_id
-  '''
-  return _get_as_df(qs)
+        nimi,
+        player_id
+    '''
+    return get_as_df('betting', qs)
 
 
 def find_index(row_id, ids_list):
@@ -241,7 +238,7 @@ def make_player_stats(tournament):
     return player_stats
 
 
-def write_preds_to_db(oos_dataset, mean_preds, logger=None):
+def write_preds_to_db(oos_dataset, mean_preds, sport_name, tournament, logger=None):
     if logger is None:
         logger = logging.getLogger()
     rows = []
@@ -265,10 +262,12 @@ def write_preds_to_db(oos_dataset, mean_preds, logger=None):
                     'home_team_score': home_team_score,
                     'away_team_score': away_team_score,
                     'probability': probability,
-                    'model_name': model_name
+                    'model_name': model_name,
+                    'sport_name': sport_name,
+                    'tournament': tournament
                 }
                 rows.append(d)
-    conn = pgutil.db.get_db_connection('betting')
+    conn = get_db_connection('betting')
     try:
         pgutil.db.write_to_table(conn=conn, table_name='predictions', logger=logger, dict_list=rows)
     finally:

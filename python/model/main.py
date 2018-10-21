@@ -1,8 +1,8 @@
 from model.player_model import SimplePlayerModel
 from model.rankings import make_rankings
 import numpy as np
-from model.bnb import bnb_stan, write_preds_to_db
-from datalayer.datalayer import make_games_data, make_game_data, make_oos_lineups, make_player_stats
+from model.bnb import bnb_stan
+from datalayer.datalayer import make_games_data, make_game_data, make_oos_lineups, make_player_stats, write_preds_to_db
 
 np.set_printoptions(linewidth=300)
 
@@ -42,20 +42,5 @@ oos_dataset = oos_games.join(oos_team_expectations).join(oos_games_with_rank)
 
 
 samples, mean_preds = bnb_stan(dataset, oos_dataset)
-write_preds_to_db(oos_dataset=oos_dataset, mean_preds=mean_preds)
-
-import matplotlib.pyplot as plt
-# This import registers the 3D projection, but is otherwise unused.
-fig = plt.figure(figsize=(8, 3))
-ax1 = fig.add_subplot(121, projection='3d')
-
-x = game_df['home_team_goals'].values
-y = game_df['away_team_goals'].values
-top = game_df['p'].values
-width = depth = 1
-bottom = np.zeros_like(top)
-ax1.bar3d(x, y, bottom, width, depth, top, shade=True)
-ax1.set_title('Shaded')
-
-plt.show()
+write_preds_to_db(oos_dataset=oos_dataset, mean_preds=mean_preds, tournament=tournament, sport_name=sport_name)
 
