@@ -1,0 +1,5 @@
+#!/bin/bash
+. secrets/set-db-creds-to-env.sh
+cd python
+export FLASK_APP=report/app.py
+flask run
