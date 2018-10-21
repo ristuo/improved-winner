@@ -15,7 +15,7 @@ select
   short_name,
   x.dl_time  
 from games
-inner join (
+left join (
   select 
     date(time) as game_date, 
     event_id, 
@@ -123,4 +123,32 @@ create view odds_predictions as
     game_odds.tournament = probs.tournament and
     game_odds.name = probs.name and
     game_odds.sport_name = probs.sport_name;
+
+
+create view predictions_odds as
+select 
+        a.game_id,
+        a.model_name,
+        a.sport_name,
+        a.tournament,
+        b.game_set,
+        b.game_date,
+        b.home_team,
+        b.away_team,
+        a.name,
+        a.probability,
+        b.odds,
+        b.open_time,
+        b.close_time,
+        b.agency,
+        b.short_name,
+        b.dl_time as odds_dl_time,
+        a.upload_time,
+        a.newest_dl_time,
+        b.event_id
+ from 
+        predictions_1x2 as a
+inner join 
+        game_odds as b 
+on a.game_id = b.game_id;
 
