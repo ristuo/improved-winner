@@ -1,0 +1,24 @@
+#!/bin/bash
+
+aws --profile=admin-account iam create-role\
+  --role-name='lambda_vpc_l_games'\
+  --description='Allows a lambda to write to postgre'\
+  --assume-role-policy-document='{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Principal": {"Service": ["lambda.amazonaws.com"]},
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "ec2:CreateNetworkInterface",
+                "ec2:DescribeNetworkInterfaces",
+                "ec2:DeleteNetworkInterface"
+            ]
+        }
+    ]
+  }'
+
+

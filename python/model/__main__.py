@@ -9,7 +9,7 @@ np.set_printoptions(linewidth=300)
 tournament = 'Liiga'
 sport_name = 'Jääkiekko'
 expected_players_per_team = 21
-max_oos_games = 15
+max_oos_games = 20
 games, oos_games, lineups = make_games_data(
     sport_name=sport_name,
     tournament=tournament,
@@ -40,7 +40,7 @@ oos_games_with_rank = oos_games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 dataset = games.join(team_expectations).join(games_with_rank)
 oos_dataset = oos_games.join(oos_team_expectations).join(oos_games_with_rank)
 
-
 samples, mean_preds = bnb_stan(dataset, oos_dataset)
 write_preds_to_db(oos_dataset=oos_dataset, mean_preds=mean_preds, tournament=tournament, sport_name=sport_name)
 
+samples

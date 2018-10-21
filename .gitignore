@@ -1,4 +1,10 @@
 *.rds
+.trash
 *.csv
+venv
 r_models
-
+__pycache__
+secrets
+.idea
+.gitignore
+trash

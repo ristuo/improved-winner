@@ -1,0 +1,5 @@
+#!/bin/bash
+
+aws iam --profile=admin-account attach-role-policy\
+  --role-name=lambda_vpc_l_lineups\
+  --policy-arn=arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
