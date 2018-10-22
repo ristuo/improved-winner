@@ -1,11 +1,12 @@
 tensorflow
-numpy
+numpy=1.15.2
 psycopg2
-pandas
+pandas=0.23.4
 cython
 arviz
 matplotlib
-keras
-pystan
+keras=2.2.4
+pystan=2.18.0.0
 rankit
 skills
+flask=1.0.2

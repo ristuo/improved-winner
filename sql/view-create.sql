@@ -30,6 +30,7 @@ left join (
     short_name,
     odds 
   from odds
+  where dl_time = (select max(dl_time) from odds)
   ) x 
 on
   x.game_date = games.game_date and
@@ -133,8 +134,8 @@ select
         a.tournament,
         b.game_set,
         b.game_date,
-        b.home_team,
-        b.away_team,
+        a.home_team,
+        a.away_team,
         a.name,
         a.probability,
         b.odds,
@@ -145,10 +146,14 @@ select
         b.dl_time as odds_dl_time,
         a.upload_time,
         a.newest_dl_time,
-        b.event_id
+        b.event_id,
+        a.probability > 1.0 / b.odds as should_bet,
+        (((b.odds-1) * (a.probability)) - (1-a.probability)) / (b.odds-1) as kelly_bet
  from 
         predictions_1x2 as a
-inner join 
+left join 
         game_odds as b 
-on a.game_id = b.game_id;
+on 
+  a.game_id = b.game_id and 
+  a.name = b.name;
 

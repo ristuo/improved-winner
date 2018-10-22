@@ -19,12 +19,12 @@
     </thead>
     <tobody>
         {% for prediction in predictions %}
-            {% if prediction['recommended_bet'] %}
+            {% if prediction['should_bet'] is none %}
                 <tr class="table-secondary">
-            {% elif prediction['recommended_bet'] > 1 %}
+            {% elif prediction['should_bet'] %}
                 <tr class="table-success">
             {% else  %}
-                <tr>
+                <tr class="table-danger">
             {% endif %}
                 <td><a href="/game/{{prediction['game_id']}}">See extended analysis</a></td>
                 {% for k in keys %}

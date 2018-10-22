@@ -9,29 +9,24 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 
 
-
-
 from flask import Flask
 app = Flask(__name__)
-predictions_table = load_predictions()
-predictions = []
-for i in range(0, predictions_table.shape[0]):
-    d = predictions_table.iloc[i].to_dict()
-    if d['odds'] is None:
-        d['recommended_bet'] = 'None'
-    else:
-        if d['probability'] > 1 / d['odds']:
-            d['recommended_bet'] = 1
-        else:
-            d['recommended_bet'] = 0
-    d['probability'] = '{0:.3f}'.format(d['probability'])
-    predictions.append(d)
-
 
 # game_id = 'runkosarja_2018-2019_105'
 
 def connect_db():
     return get_db_connection('betting')
+
+def get_preds():
+    predictions_table = load_predictions()
+    predictions = []
+    for i in range(0, predictions_table.shape[0]):
+        d = predictions_table.iloc[i].to_dict()
+        d['probability'] = '{0:.3f}'.format(d['probability'])
+        if d['kelly_bet'] is not None:
+            d['kelly_bet'] = '{0:.3f}'.format(d['kelly_bet'])
+        predictions.append(d)
+    return predictions
 
 @app.before_request
 def before_request():
@@ -49,6 +44,7 @@ def hello_world():
 
 @app.route('/predictions')
 def show_predictions():
+    predictions = get_preds()
     keys = [
         'tournament',
         'game_date',
@@ -57,6 +53,7 @@ def show_predictions():
         'name',
         'probability',
         'odds',
+        'kelly_bet',
         'open_time',
         'close_time'
     ]
@@ -65,6 +62,7 @@ def show_predictions():
 
 @app.route('/plots/jpmf-plot/<game_id>/')
 def get_plot(game_id):
+    predictions = get_preds()
     game = [p for p in predictions if p['game_id'] == game_id][0]
     game_df = load_game_predictions(game_id=game_id, tournament=game['tournament'], sport_name=game['sport_name'],
                                     conn=g.db)
@@ -76,8 +74,8 @@ def get_plot(game_id):
 
 @app.route('/game/<game_id>/')
 def show_game(game_id):
-    print("hi")
     conn = g.db
+    predictions=get_preds()
     game = [p for p in predictions if p['game_id'] == game_id][0]
     game_df = load_game_predictions(game_id=game_id, tournament=game['tournament'], sport_name=game['sport_name'],
                                     conn=conn)
