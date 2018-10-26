@@ -1,9 +1,11 @@
 from datalayer.datalayer import load_predictions, load_game_predictions, get_db_connection
+from datetime import datetime
 import io
 import numpy as np
 from flask import render_template, Response, g
 import matplotlib.pyplot as plt
 plt.switch_backend('SVG')
+import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
@@ -23,8 +25,17 @@ def get_preds():
     for i in range(0, predictions_table.shape[0]):
         d = predictions_table.iloc[i].to_dict()
         d['probability'] = '{0:.3f}'.format(d['probability'])
+        for k in d.keys():
+            if pd.isnull(d[k]):
+                d[k] = None
+
         if d['kelly_bet'] is not None:
             d['kelly_bet'] = '{0:.3f}'.format(d['kelly_bet'])
+        if d['home_team_goals'] is not None:
+            d['home_team_goals'] = int(d['home_team_goals'])
+        if d['away_team_goals'] is not None:
+            d['away_team_goals'] = int(d['away_team_goals'])
+        d['in_past'] = datetime.now().date() > d['game_date']
         predictions.append(d)
     return predictions
 
@@ -55,7 +66,9 @@ def show_predictions():
         'odds',
         'kelly_bet',
         'open_time',
-        'close_time'
+        'close_time',
+        'home_team_goals',
+        'away_team_goals'
     ]
     return render_template('predictions.html', predictions=predictions, keys=keys)
 

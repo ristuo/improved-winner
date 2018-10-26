@@ -1,3 +1,35 @@
+create view newest_odds_per_game as
+  select 
+    time, 
+    category_name,
+    odds,
+    id,
+    odds.event_id,
+    sport_name,
+    short_name,
+    event_name,
+    status,
+    tournament_name,
+    name,
+    odds.dl_time,
+    close_time,
+    open_time,
+    agency
+  from 
+    odds
+  inner join (
+    select 
+      event_id,
+      max(dl_time) as dl_time
+    from
+      odds
+    group by
+      event_id
+  ) x
+  on
+    odds.dl_time = x.dl_time and
+    odds.event_id = x.event_id;
+ 
 create view game_odds as
 select 
   game_set, 
@@ -13,6 +45,8 @@ select
   close_time,
   agency,
   short_name,
+  home_team_goals,
+  away_team_goals,
   x.dl_time  
 from games
 left join (
@@ -29,14 +63,15 @@ left join (
     agency,
     short_name,
     odds 
-  from odds
-  where dl_time = (select max(dl_time) from odds)
+  from newest_odds_per_game
   ) x 
 on
   x.game_date = games.game_date and
   x.sport_name = games.sport_name and
   x.tournament = games.tournament and
   x.event_name = concat(games.home_team, ' - ', games.away_team);
+
+   
 
 create view newest_predictions as
   select
@@ -47,6 +82,7 @@ create view newest_predictions as
     predictions.tournament,
     predictions.upload_time,
     newest_dl_time,
+    teams.game_date,
     probability,
     home_team,
     away_team,
@@ -68,7 +104,7 @@ create view newest_predictions as
     predictions.tournament = max_times.tournament and
     predictions.sport_name = max_times.sport_name
   inner join (
-    select game_id, sport_name, tournament, home_team, away_team from games
+    select game_id, game_date, sport_name, tournament, home_team, away_team from games
   ) teams
   on 
     teams.game_id = predictions.game_id and
@@ -88,6 +124,7 @@ create view predictions_1x2 as
     model_name,
     sport_name,
     tournament,
+    game_date,
     upload_time,
     newest_dl_time,
     home_team,
@@ -101,30 +138,10 @@ create view predictions_1x2 as
     tournament,
     upload_time,
     newest_dl_time,
+    game_date,
     home_team,
     away_team,
     name;
-
-create view odds_predictions as
-  select
-    game_odds.sport_name,
-    game_odds.game_id,
-    game_odds.tournament,
-    probs.probability,
-    probs.name,
-    probs.newest_dl_time,
-    probs.upload_time,
-    game_odds.event_id,
-    game_odds.open_time,
-    game_odds.close_time
-  from
-    game_odds inner join predictions_1x2 as probs
-  on
-    game_odds.game_id = probs.game_id and
-    game_odds.tournament = probs.tournament and
-    game_odds.name = probs.name and
-    game_odds.sport_name = probs.sport_name;
-
 
 create view predictions_odds as
 select 
@@ -133,12 +150,14 @@ select
         a.sport_name,
         a.tournament,
         b.game_set,
-        b.game_date,
+        a.game_date,
         a.home_team,
         a.away_team,
         a.name,
         a.probability,
         b.odds,
+        b.home_team_goals,
+        b.away_team_goals,
         b.open_time,
         b.close_time,
         b.agency,

@@ -19,7 +19,9 @@
     </thead>
     <tobody>
         {% for prediction in predictions %}
-            {% if prediction['should_bet'] is none %}
+            {% if prediction['home_team_goals'] or prediction['in_past'] %}
+                <tr>
+            {% elif prediction['should_bet'] is none %}
                 <tr class="table-secondary">
             {% elif prediction['should_bet'] %}
                 <tr class="table-success">
