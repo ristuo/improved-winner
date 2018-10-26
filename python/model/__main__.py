@@ -23,7 +23,7 @@ oos_lineups['game_id'] = oos_lineups.index
 oos_game_data = make_game_data(oos_lineups, expected_players_per_team=expected_players_per_team)
 
 
-player_stats = make_player_stats(tournament)
+player_stats = make_player_stats(tournament, lineups)
 assert player_stats.shape[0] == player_stats.index.unique().shape[0], "Player id is not unique in player_stats!"
 player_id_to_index = lineups[['player_id', 'player_id_index']].drop_duplicates()
 player_id_to_index.set_index('player_id', inplace=True)
