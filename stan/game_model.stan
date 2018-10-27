@@ -91,10 +91,15 @@ data {
   matrix[n_rows, 2] expectations;
   matrix[n_rows, m_ratings] ratings;
   int Y[n_rows, 2];
+  int n_goalies;
+  matrix[n_rows, n_goalies] home_goalie_dummies;
+  matrix[n_rows, n_goalies] away_goalie_dummies;
 
   int oos_n_rows;
   matrix[oos_n_rows, n_teams] oos_home_team_dummies;
   matrix[oos_n_rows, n_teams] oos_away_team_dummies;
+  matrix[oos_n_rows, n_goalies] oos_home_goalie_dummies;
+  matrix[oos_n_rows, n_goalies] oos_away_goalie_dummies;
   matrix[oos_n_rows, 2] oos_expectations;
   matrix[oos_n_rows, m_ratings] oos_ratings; 
 }
@@ -102,6 +107,9 @@ data {
 parameters {
   vector[m_ratings] ratings_beta_home;
   vector[m_ratings] ratings_beta_away;
+  vector[n_goalies] raw_goalie_beta;
+  real goalie_beta_mu; 
+  real<lower=0> goalie_beta_sigma;
   real expectations_beta;
   vector[n_teams] team_attack_beta;
   vector[n_teams] team_defence_beta;
@@ -112,24 +120,31 @@ parameters {
 }
 
 transformed parameters {
+  vector[n_goalies] goalie_beta;
   vector[2] a_inv;
   matrix[n_rows,2] mu;
+  goalie_beta = goalie_beta_mu + goalie_beta_sigma * raw_goalie_beta;
   a_inv[1] = 1.0 / a[1];
   a_inv[2] = 1.0 / a[2];
   mu[:,1] = exp(
     intercept + home_team_effect + home_team_dummies * team_attack_beta +  
     away_team_dummies * team_defence_beta + ratings * ratings_beta_home + 
+    away_goalie_dummies * goalie_beta +
     expectations[:,1] * expectations_beta
   );
   mu[:,2] = exp(
     intercept + away_team_dummies * team_attack_beta +  
     home_team_dummies * team_defence_beta + ratings * ratings_beta_away + 
+    home_goalie_dummies * goalie_beta +
     expectations[:,2] * expectations_beta
   );
 }
 
 
 model {
+  raw_goalie_beta ~ normal(0,1);
+  goalie_beta_mu ~ normal(0,5);
+  goalie_beta_sigma ~ uniform(0, 20);
   phi ~ normal(0,5);
   intercept ~ normal(0,5);
   home_team_effect ~ normal(0.2,3);
@@ -149,11 +164,13 @@ generated quantities {
   oos_mu[:,1] = exp(
     intercept + home_team_effect + oos_home_team_dummies * team_attack_beta +  
     oos_away_team_dummies * team_defence_beta + oos_ratings * ratings_beta_home + 
+    oos_away_goalie_dummies * goalie_beta +
     oos_expectations[:,1] * expectations_beta
   );
   oos_mu[:,2] = exp(
     intercept + oos_away_team_dummies * team_attack_beta +  
     oos_home_team_dummies * team_defence_beta + oos_ratings * ratings_beta_away + 
+    oos_home_goalie_dummies * goalie_beta +
     oos_expectations[:,2] * expectations_beta
   ); 
   for (i in 1:oos_n_rows) {
