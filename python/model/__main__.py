@@ -38,7 +38,7 @@ player_stats = player_stats.join(player_id_to_index, how='inner')
 player_stats = player_stats[(player_stats['player_position'] != 'goalies') & (player_stats['player_position'] != 'goalie')]
 player_stats = set_indices(player_stats, 'player_position')
 simple_model = SimplePlayerModel(model_name='ebin_Malli_2', player_stats=player_stats)
-simple_model.load_or_fit()
+simple_model.fit(iterations=1000)
 
 team_expectations = simple_model.find_team_expectations(game_data)
 oos_team_expectations = simple_model.find_team_expectations(oos_game_data)
@@ -46,7 +46,7 @@ games_with_rank, oos_games_with_rank = make_rankings(games, oos_games)
 games_with_rank = games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 oos_games_with_rank = oos_games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 dataset = games.join(team_expectations).join(games_with_rank)
-oos_dataset = games.join(oos_team_expectations).join(oos_games_with_rank)
+oos_dataset = oos_games.join(oos_team_expectations).join(oos_games_with_rank)
 
 samples, mean_preds = bnb_stan(dataset, oos_dataset,n_iter=6000)
 write_preds_to_db(oos_dataset=oos_dataset, mean_preds=mean_preds, tournament=tournament, sport_name=sport_name)

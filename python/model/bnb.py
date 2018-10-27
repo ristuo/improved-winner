@@ -76,7 +76,7 @@ def bnb_stan(dataset, oos_dataset, n_iter=5000):
         'oos_ratings': oos_ratings_data
     }
     stan_model = StanModel(
-        '../stan/game_model.stan'
+        '../stan/games.stan'
     )
     init_list = [
         {
