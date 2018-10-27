@@ -3,25 +3,27 @@ data {
   int goals[n_players];
   int shots[n_players];
   int games[n_players];
+  int n_positions;
+  int player_position_index[n_players];
 }
 
 parameters {
   vector[n_players] raw_probability;
-  real probability_population_mean;
-  real<lower=0> probability_population_sigma;
+  vector[n_positions] probability_population_mean;
+  vector<lower=0>[n_positions] probability_population_sigma;
   vector[n_players] raw_lambda;
-  real lambda_population_mean;
-  real<lower=0> lambda_population_sigma;
+  vector[n_positions] lambda_population_mean;
+  vector<lower=0>[n_positions] lambda_population_sigma;
 }
 
 transformed parameters {
   vector[n_players] probability = inv_logit(
-    probability_population_mean + 
-    probability_population_sigma * raw_probability
+    probability_population_mean[player_position_index] + 
+    probability_population_sigma[player_position_index] .* raw_probability
   );
   vector[n_players] lambda = exp(
-    lambda_population_mean + 
-    lambda_population_sigma * raw_lambda
+    lambda_population_mean[player_position_index] + 
+    lambda_population_sigma[player_position_index] .* raw_lambda
   ); 
 }
 

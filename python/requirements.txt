@@ -7,6 +7,4 @@ arviz
 matplotlib
 keras=2.2.4
 pystan=2.18.0.0
-rankit
-skills
 flask=1.0.2

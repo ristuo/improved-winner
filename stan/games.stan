@@ -156,8 +156,10 @@ generated quantities {
     oos_home_team_dummies * team_defence_beta + oos_ratings * ratings_beta_away + 
     oos_expectations[:,2] * expectations_beta
   ); 
+// juuh
   for (i in 1:oos_n_rows) {
     probability = bnb_predictions(to_vector(oos_mu[i,:]), a_inv, phi, max_goals);
     predicted_probabilities[i] = probability;
   }
 }
+

@@ -88,6 +88,7 @@ def load_lineups(tournament):
             player_id,
             season,
             team_type,
+            player_position,
             game_set
         FROM
             lineups 
@@ -244,10 +245,24 @@ def make_games_data(sport_name, tournament, max_oos_games, logger = None):
     lineups = lineups[lineups['game_id'].isin(game_ids)]
     lineups = set_indices(lineups, 'player_id', list(set(lineups['player_id'])))
     lineups.reset_index()
-    return (games, oos_games, lineups)
+    return games, oos_games, lineups
 
 
-def make_player_stats(tournament):
+def find_player_positions(lineups):
+    def f(df):
+        index = np.argmax(df['count'].values)
+        return df.iloc[index]['player_position']
+    res = lineups[['player_id', 'player_id_index', 'player_position', 'game_id']]\
+        .groupby(['player_id', 'player_id_index', 'player_position'], as_index=False)['game_id']\
+        .agg(['count'])\
+        .reset_index()\
+        .groupby(['player_id', 'player_id_index'], as_index=False)\
+        .apply(f)\
+        .reset_index()
+    res.columns = list(res.columns[:-1]) + ['player_position']
+    return res
+
+def make_player_stats(tournament, lineups):
     """
     Load player statistics, make sure goals at least equals shots and set indices according to players in lineups.
 
@@ -256,11 +271,15 @@ def make_player_stats(tournament):
     :param lineups:
     :return:
     """
+    positions = find_player_positions(lineups)
+    positions = positions.set_index('player_id')[['player_position']]
     player_stats = load_player_stats(tournament)
     player_stats.set_index('player_id', inplace=True)
     mask = player_stats['goals'] > player_stats['shots']
     player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
-    return player_stats
+    res = player_stats.join(positions)
+    res = res[pd.notna(res['player_position'])]
+    return res
 
 
 def write_preds_to_db(oos_dataset, mean_preds, sport_name, tournament, logger=None):

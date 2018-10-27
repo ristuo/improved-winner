@@ -2,7 +2,7 @@ from pystan import StanModel
 import pytz
 import numpy as np
 from scipy.special import loggamma
-from model.dummies import make_team_dummies
+from model.dummies import make_team_dummies, make_goalie_dummies
 
 np.set_printoptions(precision=2, suppress=True)
 tz = pytz.timezone('Europe/Helsinki')
@@ -34,20 +34,11 @@ def find_game_probabilities(mu, a, phi, max_goals = 10):
             res[row_index, 2] = bnb_prob(y, mu, a, phi)
     return res
 
-
-
-def broadcast_matmul(A, B):
-    "Compute A @ B, broadcasting over the first `N-2` ranks"
-    with tf.variable_scope("broadcast_matmul"):
-        return tf.reduce_sum(A[..., tf.newaxis] * B[..., tf.newaxis, :, :],
-                             axis=-2)
-
-
 def extract_data(dataset):
     n_rows, n_cols = dataset.shape
     Y_data = dataset[['home_team_goals', 'away_team_goals']].values
-    ratings_data = dataset[['home_team_adv', 'home_team_adv_sq']].values.reshape(n_rows,1,2)
-    expectations_data = dataset[['home_expected', 'away_expected']].values.reshape(n_rows,2)
+    ratings_data = dataset[['home_team_adv', 'home_team_adv_sq']].values.reshape(n_rows, 1, 2)
+    expectations_data = dataset[['home_expected', 'away_expected']].values.reshape(n_rows, 2)
     team_dummies_data = make_team_dummies(dataset)
     return Y_data, ratings_data, expectations_data, team_dummies_data
 
@@ -58,7 +49,7 @@ def normalize(mat, oos_mat):
     return (mat - mean) / sd, (oos_mat - mean) / sd
 
 
-def bnb_stan(dataset, oos_dataset):
+def bnb_stan(dataset, oos_dataset, n_iter=5000):
     Y_data, ratings_data, expectations_data, team_dummies_data = extract_data(dataset)
     _, oos_ratings_data, oos_expectations_data, oos_team_dummies_data = \
         extract_data(oos_dataset)
@@ -66,8 +57,8 @@ def bnb_stan(dataset, oos_dataset):
     oos_ratings_data = oos_ratings_data.squeeze()
     ratings_data, oos_ratings_data = normalize(ratings_data, oos_ratings_data)
     expectations_data, oos_expectations_data = normalize(expectations_data, oos_expectations_data)
-    home_team_dummies = team_dummies_data[::,0, ::]
-    away_team_dummies = team_dummies_data[::,1, ::]
+    home_team_dummies = team_dummies_data[::, 0, ::]
+    away_team_dummies = team_dummies_data[::, 1, ::]
     stan_data = {
         'n_rows': Y_data.shape[0],
         'n_teams': team_dummies_data.shape[2],
@@ -79,13 +70,13 @@ def bnb_stan(dataset, oos_dataset):
         'ratings': ratings_data,
         'Y': Y_data.astype(np.int16),
         'oos_n_rows': oos_ratings_data.shape[0],
-        'oos_home_team_dummies': oos_team_dummies_data[::,0,::],
-        'oos_away_team_dummies': oos_team_dummies_data[::,1,::],
+        'oos_home_team_dummies': oos_team_dummies_data[::, 0,::],
+        'oos_away_team_dummies': oos_team_dummies_data[::, 1,::],
         'oos_expectations': oos_expectations_data,
         'oos_ratings': oos_ratings_data
     }
     stan_model = StanModel(
-        '../stan/game_model.stan'
+        '../stan/games.stan'
     )
     init_list = [
         {
@@ -108,7 +99,7 @@ def bnb_stan(dataset, oos_dataset):
     ]
     samples = stan_model.sampling(
         stan_data,
-        iter=6000,
+        iter=n_iter,
         chains=4,
         refresh=1,
         init=init_list,
