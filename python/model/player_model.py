@@ -21,11 +21,16 @@ class SimplePlayerModel:
         self.player_stats = player_stats
         self.stan_model = None
         self.samples = None
+        player_position_indices = player_stats['player_position_index'].values
+        if np.min(player_position_indices) == 0:
+            player_position_indices += 1
         self.stan_data = {
             'n_players': player_stats.shape[0],
             'goals': player_stats['goals'].values,
             'shots': player_stats['shots'].values,
-            'games': player_stats['games'].values
+            'games': player_stats['games'].values,
+            'n_positions': np.max(player_position_indices),
+            'player_position_index': player_position_indices
         }
         if model_name is not None:
             self.model_name = 'model' + model_name
@@ -87,11 +92,9 @@ class SimplePlayerModel:
         lmeans = np.apply_along_axis(np.mean, 0, lambdas)
         pmeans = np.apply_along_axis(np.mean, 0, probs)
         player_id_indices = self.player_stats['player_id_index']
-
         player_expected = pd.DataFrame(
             lmeans * pmeans, index=player_id_indices
         )
-
         mean_expected = float(np.mean(player_expected))
         not_in_model = game_data > player_expected.shape[0]
         game_data[not_in_model] = player_expected.shape[0]

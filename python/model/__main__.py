@@ -1,8 +1,11 @@
 from model.player_model import SimplePlayerModel
+import pandas as pd
 from model.rankings import make_rankings
 import numpy as np
 from model.bnb import bnb_stan
-from datalayer.datalayer import make_games_data, make_game_data, make_oos_lineups, make_player_stats, write_preds_to_db
+from datalayer.datalayer import make_games_data, make_game_data, make_oos_lineups, \
+    make_player_stats, write_preds_to_db, set_indices
+
 
 np.set_printoptions(linewidth=300)
 
@@ -28,7 +31,8 @@ assert player_stats.shape[0] == player_stats.index.unique().shape[0], "Player id
 player_id_to_index = lineups[['player_id', 'player_id_index']].drop_duplicates()
 player_id_to_index.set_index('player_id', inplace=True)
 player_stats = player_stats.join(player_id_to_index, how='inner')
-
+player_stats = player_stats[(player_stats['player_position'] != 'goalies') & (player_stats['player_position'] != 'goalie')]
+player_stats = set_indices(player_stats, 'player_position')
 simple_model = SimplePlayerModel(model_name='ebin_Malli_2', player_stats=player_stats)
 simple_model.load_or_fit()
 

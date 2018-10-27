@@ -245,7 +245,8 @@ def make_games_data(sport_name, tournament, max_oos_games, logger = None):
     lineups = lineups[lineups['game_id'].isin(game_ids)]
     lineups = set_indices(lineups, 'player_id', list(set(lineups['player_id'])))
     lineups.reset_index()
-    return (games, oos_games, lineups)
+    return games, oos_games, lineups
+
 
 def find_player_positions(lineups):
     def f(df):
@@ -259,7 +260,6 @@ def find_player_positions(lineups):
         .apply(f)\
         .reset_index()
     res.columns = list(res.columns[:-1]) + ['player_position']
-    res.rename({'0': 'player_position'})
     return res
 
 def make_player_stats(tournament, lineups):
@@ -272,12 +272,14 @@ def make_player_stats(tournament, lineups):
     :return:
     """
     positions = find_player_positions(lineups)
-    positions = positions.set_index('player_id')['player_position']
+    positions = positions.set_index('player_id')[['player_position']]
     player_stats = load_player_stats(tournament)
     player_stats.set_index('player_id', inplace=True)
     mask = player_stats['goals'] > player_stats['shots']
     player_stats.loc[mask, 'shots'] = player_stats[mask]['goals']
-    return player_stats.join(positions)
+    res = player_stats.join(positions)
+    res = res[pd.notna(res['player_position'])]
+    return res
 
 
 def write_preds_to_db(oos_dataset, mean_preds, sport_name, tournament, logger=None):
