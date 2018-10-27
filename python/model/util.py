@@ -24,3 +24,14 @@ def make_goalies(lineups, oos_lineups):
     goalie_indices = goalies[['player_id', 'goalie_index']].drop_duplicates().reset_index()
     oos_goalies = oos_goalies.merge(goalie_indices, on='player_id')
     return goalies, oos_goalies
+
+def set_goalies(games, goalies):
+    with_goalies = games\
+        .merge(goalies.drop('player_id', axis=1), left_on=['game_id', 'home_team'], right_on=['game_id', 'team'])\
+        .drop('team',axis=1)\
+        .rename(columns={'goalie_index': 'home_goalie_index'})\
+        .merge(goalies.drop('player_id', axis=1), left_on=['game_id', 'away_team'], right_on=['game_id', 'team'])\
+        .drop('team',axis=1)\
+        .rename(columns={'goalie_index': 'away_goalie_index'})
+    return with_goalies
+

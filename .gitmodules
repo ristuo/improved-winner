@@ -1,3 +1,6 @@
 [submodule "python/pgutil"]
 	path = python/pgutil
 	url = https://github.com/ristuo/pgutil.git
+[submodule "python/ranks"]
+	path = python/ranks
+	url = git@github.com:ristuo/ranks.git

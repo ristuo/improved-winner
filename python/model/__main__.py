@@ -10,8 +10,6 @@ from datalayer.datalayer import make_games_data, make_game_data, make_oos_lineup
 pd.set_option('display.width', 250)
 pd.set_option('display.max_columns', 20)
 
-
-
 np.set_printoptions(linewidth=300)
 
 tournament = 'Liiga'
@@ -32,7 +30,6 @@ oos_non_goalie_lineups = oos_lineups[is_not_goalie(oos_lineups)]
 oos_lineups['game_id'] = oos_lineups.index
 oos_game_data = make_game_data(oos_non_goalie_lineups, expected_players_per_team=expected_players_per_team)
 
-
 player_stats = make_player_stats(tournament, lineups)
 assert player_stats.shape[0] == player_stats.index.unique().shape[0], "Player id is not unique in player_stats!"
 player_id_to_index = lineups[['player_id', 'player_id_index']].drop_duplicates()
@@ -43,34 +40,13 @@ player_stats = set_indices(player_stats, 'player_position')
 simple_model = SimplePlayerModel(model_name='ebin_Malli_2', player_stats=player_stats)
 simple_model.load_or_fit()
 
-
-def set_goalies(games, goalies):
-    with_goalies = games\
-        .merge(goalies.drop('player_id', axis=1), left_on=['game_id', 'home_team'], right_on=['game_id', 'team'])\
-        .drop('team',axis=1)\
-        .rename(columns={'goalie_index': 'home_goalie_index'})\
-        .merge(goalies.drop('player_id', axis=1), left_on=['game_id', 'away_team'], right_on=['game_id', 'team'])\
-        .drop('team',axis=1)\
-        .rename(columns={'goalie_index': 'away_goalie_index'})
-    return with_goalies
-
-
-goalies, oos_goalies = make_goalies(lineups, oos_lineups)
-with_goalies = set_goalies(games, goalies)
-oos_with_goalies = set_goalies(oos_games, oos_goalies)
-with_goalies.set_index('game_id', inplace=True)
-oos_with_goalies.set_index('game_id', inplace=True)
-
 team_expectations = simple_model.find_team_expectations(game_data)
 oos_team_expectations = simple_model.find_team_expectations(oos_game_data)
 games_with_rank, oos_games_with_rank = make_rankings(games, oos_games)
 games_with_rank = games_with_rank[['home_team_adv', 'home_team_adv_sq']]
 oos_games_with_rank = oos_games_with_rank[['home_team_adv', 'home_team_adv_sq']]
-dataset = with_goalies.join(team_expectations).join(games_with_rank)
-oos_dataset = oos_with_goalies.join(oos_team_expectations).join(oos_games_with_rank)
+dataset = games.join(team_expectations).join(games_with_rank)
+oos_dataset = games.join(oos_team_expectations).join(oos_games_with_rank)
 
-samples, mean_preds = bnb_stan(dataset, oos_dataset,n_iter=1000)
-samples
+samples, mean_preds = bnb_stan(dataset, oos_dataset,n_iter=6000)
 write_preds_to_db(oos_dataset=oos_dataset, mean_preds=mean_preds, tournament=tournament, sport_name=sport_name)
-
-samples
