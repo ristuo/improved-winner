@@ -10,6 +10,35 @@ from pgutil.db import get_db_connection, get_as_df
 tz = timezone('Europe/Helsinki')
 
 
+def is_not_goalie(df):
+    return (df['player_position'] != 'goalie') & (df['player_position'] != 'goalies')
+
+
+def is_goalie(df):
+    return ~is_not_goalie(df)
+
+
+def make_goalies(lineups, oos_lineups):
+    goalies = lineups[is_goalie(lineups)][['team', 'game_id', 'player_id']]
+    oos_goalies = oos_lineups[is_goalie(oos_lineups)][['team', 'game_id', 'player_id']]
+
+    def have_only_one_goalie(df):
+        def pick_goalie(df):
+            return df.iloc[0]['player_id']
+        res = df.groupby(['team', 'game_id'], as_index=False).apply(pick_goalie).reset_index()
+        res.columns = list(df.columns[:-1]) + ['player_id']
+        return res
+    goalies = have_only_one_goalie(goalies)
+    oos_goalies = have_only_one_goalie(oos_goalies)
+    goalies = set_indices(goalies, 'player_id')
+    goalies = goalies.rename(columns={'player_id_index': 'goalie_index'})
+
+    goalie_indices = goalies[['player_id', 'goalie_index']].drop_duplicates().reset_index()
+    oos_goalies = oos_goalies.merge(goalie_indices, on='player_id')
+    return goalies, oos_goalies
+
+
+
 def load_predictions_and_odds(sport_name, tournament):
     qs = '''
         select 
@@ -116,6 +145,27 @@ def _load_liiga_player_stats():
     return res
 
 
+def _load_liiga_player_stats_with_name():
+    qs = '''
+    SELECT
+      sum(shots) as shots,
+      sum(goals) as goals,
+      sum(games) as games,
+      player_id,
+      player_name
+    FROM
+      liiga_player_stats
+    WHERE
+      season > '2015'
+    GROUP BY
+      player_id,
+      player_name
+    '''
+    res = get_as_df('betting', qs)
+    return res
+
+
+
 def load_player_stats(tournament):
     if tournament == "Veikkausliiga":
         return _load_vl_player_stats()
@@ -131,13 +181,13 @@ def _load_vl_player_stats():
         sum(shots) as shots,
         sum(goals) as goals,
         sum(games) as games,
-        nimi,
+        nimi as player_name,
         player_id
     FROM veikkausliiga_player_stats
     WHERE
         season > '2015'
     GROUP BY
-        nimi,
+        player_name,
         player_id
     '''
     return get_as_df('betting', qs)
@@ -186,6 +236,22 @@ def make_game_data(lineups, expected_players_per_team):
     game_data_matrix = np.concatenate(game_data.values).reshape((nrow,ncol))
     return pd.DataFrame(game_data_matrix, index=game_data.index)
 
+def goalie_stats_load(tournament, sport, lineups, oos_lineups):
+    if tournament == 'Liiga' and sport == 'Jääkiekko':
+        players = _load_liiga_player_stats_with_name()
+        players['player_name'] = players['player_name'].str.replace('*', '').str.strip().drop_duplicates()
+        player_ids = players[['player_name', 'player_id']]
+        path = "../data/maalivahdit.csv"
+        goalies = pd.read_csv(path)
+        goalies.head()
+        goalies['Nimi'] = goalies['Nimi'].str.replace('#', '').str.strip()
+        df = goalies[['Nimi', 'TO', 'PM']].merge(player_ids, left_on='Nimi', right_on='player_name')
+        df = df[df['TO'] > 0]
+        df['pct'] = df['PM'] / df['TO']
+        df = df[['player_id', 'TO', 'PM', 'pct']]
+        game_goalies, oos_game_goalies = make_goalies(lineups, oos_lineups)
+        return game_goalies.merge(df, on='player_id'), oos_game_goalies.merge(df, on='player_id')
+    raise RuntimeError('Not implemented for ' + tournament + ', ' + sport)
 
 def make_oos_lineup(row, games, lineups):
     def find_lineup(team):
