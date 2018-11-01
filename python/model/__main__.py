@@ -44,7 +44,7 @@ player_stats = player_stats.join(player_id_to_index, how='inner')
 player_stats = player_stats[(player_stats['player_position'] != 'goalies') & (player_stats['player_position'] != 'goalie')]
 player_stats = set_indices(player_stats, 'player_position')
 simple_model = SimplePlayerModel(model_name='ebin_Malli_2', player_stats=player_stats)
-simple_model.fit(iterations=1000)
+simple_model.fit(iterations=3000)
 
 team_expectations = simple_model.find_team_expectations(game_data)
 oos_team_expectations = simple_model.find_team_expectations(oos_game_data)
