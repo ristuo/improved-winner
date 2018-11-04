@@ -9,8 +9,7 @@ functions {
     theta[1] = 1.0 / (a_inv[1] + 1); 
     theta[2] = 1.0 / (a_inv[2] + 1); 
     for (i in 1:n) {
-      for (t in 1:2) {
-        a_inv_mu[i][t] = a_inv[t] * mu[i][t];
+      for (t in 1:2) { a_inv_mu[i][t] = a_inv[t] * mu[i][t];
         c[i][t] = ((1.0 - theta[t]) / (1 - theta[t] * exp(-1))) ^ (a_inv_mu[i][t]);
       }   
     }   
@@ -91,12 +90,14 @@ data {
   matrix[n_rows, 2] expectations;
   matrix[n_rows, m_ratings] ratings;
   int Y[n_rows, 2];
+  matrix[n_rows, 2] pct;
 
   int oos_n_rows;
   matrix[oos_n_rows, n_teams] oos_home_team_dummies;
   matrix[oos_n_rows, n_teams] oos_away_team_dummies;
   matrix[oos_n_rows, 2] oos_expectations;
   matrix[oos_n_rows, m_ratings] oos_ratings; 
+  matrix[oos_n_rows, 2] oos_pct;
 }
 
 parameters {
@@ -105,6 +106,7 @@ parameters {
   real expectations_beta;
   vector[n_teams] team_attack_beta;
   vector[n_teams] team_defence_beta;
+  real pct_beta;
   vector<lower=0>[2] a;
   real phi;
   real intercept;
@@ -119,11 +121,13 @@ transformed parameters {
   mu[:,1] = exp(
     intercept + home_team_effect + home_team_dummies * team_attack_beta +  
     away_team_dummies * team_defence_beta + ratings * ratings_beta_home + 
+    pct_beta * pct[:,2] + 
     expectations[:,1] * expectations_beta
   );
   mu[:,2] = exp(
     intercept + away_team_dummies * team_attack_beta +  
     home_team_dummies * team_defence_beta + ratings * ratings_beta_away + 
+    pct_beta * pct[:,1] + 
     expectations[:,2] * expectations_beta
   );
 }
@@ -131,12 +135,13 @@ transformed parameters {
 
 model {
   phi ~ normal(0,5);
+  pct_beta ~ normal(0, 5);
   intercept ~ normal(0,5);
-  home_team_effect ~ normal(0.2,3);
+  home_team_effect ~ normal(0,5);
   ratings_beta_home ~ normal(0,5);
   ratings_beta_away ~ normal(0,5);
-  team_attack_beta ~ normal(0,1);
-  team_defence_beta ~ normal(0,1);
+  team_attack_beta ~ normal(0,5);
+  team_defence_beta ~ normal(0,5);
   expectations_beta ~ normal(0,5);
   a ~ uniform(0,10);
   target += bnb_cost(Y, phi, mu, a_inv, n_rows);
@@ -146,17 +151,22 @@ generated quantities {
   matrix[oos_n_rows, 2] oos_mu;
   matrix[max_goals, max_goals] probability;
   matrix[max_goals, max_goals] predicted_probabilities[oos_n_rows];
+  vector[n_rows] log_likelihoods;
+  for (i in 1:n_rows) {
+    log_likelihoods[i] = bnb_cost(Y[i:i,:], phi, to_matrix(mu[i,]), a_inv, 1);
+  }
   oos_mu[:,1] = exp(
     intercept + home_team_effect + oos_home_team_dummies * team_attack_beta +  
     oos_away_team_dummies * team_defence_beta + oos_ratings * ratings_beta_home + 
+    pct_beta * oos_pct[:,2] + 
     oos_expectations[:,1] * expectations_beta
   );
   oos_mu[:,2] = exp(
     intercept + oos_away_team_dummies * team_attack_beta +  
     oos_home_team_dummies * team_defence_beta + oos_ratings * ratings_beta_away + 
+    pct_beta * oos_pct[:,1] + 
     oos_expectations[:,2] * expectations_beta
   ); 
-// juuh
   for (i in 1:oos_n_rows) {
     probability = bnb_predictions(to_vector(oos_mu[i,:]), a_inv, phi, max_goals);
     predicted_probabilities[i] = probability;

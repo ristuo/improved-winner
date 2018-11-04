@@ -1,43 +1,46 @@
 import pgutil.db
 import pandas as pd
 from datetime import datetime
-from pytz import timezone
 import logging
 import math
 import numpy as np
 from pgutil.db import get_db_connection, get_as_df
-
+from pytz import timezone
 tz = timezone('Europe/Helsinki')
 
 
-def load_predictions_and_odds(sport_name, tournament):
-    qs = '''
-        select 
-                game_set, 
-                game_id, 
-                event_id, 
-                games.game_date, 
-                home_team, 
-                away_team, 
-                name, 
-                odds, 
-                x.sport_name, 
-                x.dl_time  
-        from games
-        inner join 
-                (select date(time) as game_date, event_id, sport_name, dl_time, tournament_name, event_name, name, odds from odds) x 
-        on
-                x.game_date = games.game_date and
-                x.sport_name = games.sport_name and
-                x.tournament_name = games.tournament and
-                x.event_name = concat(games.home_team, ' - ', games.away_team)
-         where games.game_date < date('2018-10-22')
-        order by 
-                game_id, name, dl_time;
-    '''
+def is_not_goalie(df):
+    return (df['player_position'] != 'goalie') & (df['player_position'] != 'goalies')
 
 
-def load_games(sport_name, tournament):
+def is_goalie(df):
+    return ~is_not_goalie(df)
+
+
+def make_goalies(lineups, oos_lineups):
+    goalies = lineups[is_goalie(lineups)][['team', 'game_id', 'player_id']]
+    oos_goalies = oos_lineups[is_goalie(oos_lineups)][['team', 'game_id', 'player_id']]
+
+    def have_only_one_goalie(df):
+        def pick_goalie(df):
+            return df.iloc[0]['player_id']
+        res = df.groupby(['team', 'game_id'], as_index=False).apply(pick_goalie).reset_index()
+        res.columns = list(df.columns[:-1]) + ['player_id']
+        return res
+    goalies = have_only_one_goalie(goalies)
+    oos_goalies = have_only_one_goalie(oos_goalies)
+    goalies = set_indices(goalies, 'player_id')
+    goalies = goalies.rename(columns={'player_id_index': 'goalie_index'})
+
+    goalie_indices = goalies[['player_id', 'goalie_index']].drop_duplicates().reset_index()
+    oos_goalies = oos_goalies.merge(goalie_indices, on='player_id')
+    return goalies, oos_goalies
+
+
+def load_existing_bets():
+    pass
+
+def load_games(sport_name, tournament, cutoff_date=datetime.now().date()):
     qs = '''
         SELECT
             *
@@ -51,9 +54,10 @@ def load_games(sport_name, tournament):
     res = get_as_df('betting', qs)
     res['home_team'] = res['home_team'].apply(lambda s: s.strip())
     res['away_team'] = res['away_team'].apply(lambda s: s.strip())
-    games = res[res['home_team_goals'].apply(lambda a: not math.isnan(a))]
-    oos = res[res['home_team_goals'].apply(lambda a: math.isnan(a))]
+    games = res[res['game_date'].apply(lambda a: a < cutoff_date)]
+    oos = res[res['game_date'].apply(lambda a: a >= cutoff_date)]
     return games, oos
+
 
 def load_game_predictions(tournament, sport_name, game_id, conn=None):
     qs = '''
@@ -68,6 +72,22 @@ def load_game_predictions(tournament, sport_name, game_id, conn=None):
     '''.format(tournament, sport_name, game_id)
     return get_as_df('betting', qs, conn)
 
+
+def load_bettable_predictions(conn=None):
+    qs = '''
+        SELECT  
+            *
+        FROM
+            predictions_odds
+        WHERE
+            game_id not in (select distinct game_id from bets) AND
+            kelly_bet > 0 AND
+            now() > open_time AND
+            now() < close_time
+    '''
+    return get_as_df('betting', qs)
+
+
 def load_predictions():
     qs = '''
         SELECT
@@ -79,6 +99,7 @@ def load_predictions():
             game_id
     '''
     return get_as_df('betting', qs)
+
 
 def load_lineups(tournament):
     qs = '''
@@ -98,6 +119,7 @@ def load_lineups(tournament):
     res = get_as_df('betting', qs)
     return res
 
+
 def _load_liiga_player_stats():
     qs = '''
     SELECT
@@ -111,6 +133,26 @@ def _load_liiga_player_stats():
       season > '2015'
     GROUP BY
       player_id
+    '''
+    res = get_as_df('betting', qs)
+    return res
+
+
+def _load_liiga_player_stats_with_name():
+    qs = '''
+    SELECT
+      sum(shots) as shots,
+      sum(goals) as goals,
+      sum(games) as games,
+      player_id,
+      player_name
+    FROM
+      liiga_player_stats
+    WHERE
+      season > '2015'
+    GROUP BY
+      player_id,
+      player_name
     '''
     res = get_as_df('betting', qs)
     return res
@@ -131,13 +173,13 @@ def _load_vl_player_stats():
         sum(shots) as shots,
         sum(goals) as goals,
         sum(games) as games,
-        nimi,
+        nimi as player_name,
         player_id
     FROM veikkausliiga_player_stats
     WHERE
         season > '2015'
     GROUP BY
-        nimi,
+        player_name,
         player_id
     '''
     return get_as_df('betting', qs)
@@ -180,11 +222,29 @@ def make_players_vector(players, expected_length):
 
 
 def make_game_data(lineups, expected_players_per_team):
-    game_data = lineups.groupby(['game_id']).apply(lambda a: make_players_vector(a, expected_players_per_team))
+    game_data = lineups.groupby(['game_id'])\
+        .apply(lambda a: make_players_vector(a, expected_players_per_team))
     nrow = game_data.shape[0]
     ncol = game_data[0].shape[0]
     game_data_matrix = np.concatenate(game_data.values).reshape((nrow,ncol))
     return pd.DataFrame(game_data_matrix, index=game_data.index)
+
+
+def goalie_stats_load(tournament, sport, lineups, oos_lineups):
+    if tournament == 'Liiga' and sport == 'Jääkiekko':
+        players = _load_liiga_player_stats_with_name()
+        players['player_name'] = players['player_name'].str.replace('*', '').str.strip().drop_duplicates()
+        player_ids = players[['player_name', 'player_id']]
+        path = "../data/maalivahdit.csv"
+        goalies = pd.read_csv(path)
+        goalies['Nimi'] = goalies['Nimi'].str.replace('#', '').str.strip()
+        df = goalies[['Nimi', 'TO', 'PM']].merge(player_ids, left_on='Nimi', right_on='player_name')
+        df = df[df['TO'] > 0]
+        df['pct'] = df['PM'] / df['TO']
+        df = df[['player_id', 'TO', 'PM', 'pct']]
+        game_goalies, oos_game_goalies = make_goalies(lineups, oos_lineups)
+        return game_goalies.merge(df, on='player_id'), oos_game_goalies.merge(df, on='player_id')
+    raise RuntimeError('Not implemented for ' + tournament + ', ' + sport)
 
 
 def make_oos_lineup(row, games, lineups):
@@ -220,7 +280,13 @@ def make_oos_lineups(oos_games, games, lineups):
     res.set_index('game_id', inplace=True)
     return res
 
-def make_games_data(sport_name, tournament, max_oos_games, logger = None):
+
+def load_betting_results():
+    qs = 'SELECT * FROM betting_results WHERE money_won IS NOT NULL order by game_date'
+    return get_as_df('betting', qs)
+
+def make_games_data(sport_name, tournament, max_oos_games, logger = None,
+                    cutoff_date=datetime.now().date()):
     """
     Finds games (separated to out of sample ones and already player out ones) and lineups.
 
@@ -231,7 +297,9 @@ def make_games_data(sport_name, tournament, max_oos_games, logger = None):
     :return: games, oos_games and lineups, all being pandas dataframes.
     """
     lineups = load_lineups(tournament)
-    all_games, oos = load_games(sport_name = sport_name, tournament=tournament)
+    all_games, oos = load_games(sport_name = sport_name,
+                                tournament=tournament,
+                                cutoff_date=cutoff_date)
     teams = list(set(all_games['home_team']).union(all_games['away_team']))
     oos_games = oos[0:(max_oos_games - 1)]
     all_games = set_indices(all_games, 'home_team', teams)
@@ -282,39 +350,13 @@ def make_player_stats(tournament, lineups):
     return res
 
 
-def write_preds_to_db(oos_dataset, mean_preds, sport_name, tournament, logger=None):
+def write_preds_to_db(rows, logger=None):
     if logger is None:
         logger = logging.getLogger()
-    rows = []
-    newest_dl_time = np.max(oos_dataset['dl_time'])
-    model_name = 'BNB1-v1'
-    upload_time = datetime.now(tz)
-    for game_index in range(0, oos_dataset.shape[0]):
-        game = oos_dataset.iloc[game_index]
-        game_id = game.name
-        predictions_matrix = mean_preds[game_index, ::, ::]
-        n, m = predictions_matrix.shape
-        for i in range(0, n):
-            for j in range(0, m):
-                home_team_score = i
-                away_team_score = j
-                probability = predictions_matrix[i, j]
-                d = {
-                    'upload_time': upload_time,
-                    'game_id': game_id,
-                    'newest_dl_time': newest_dl_time,
-                    'home_team_score': home_team_score,
-                    'away_team_score': away_team_score,
-                    'probability': probability,
-                    'model_name': model_name,
-                    'sport_name': sport_name,
-                    'tournament': tournament
-                }
-                rows.append(d)
     conn = get_db_connection('betting')
     try:
-        pgutil.db.write_to_table(conn=conn, table_name='predictions', logger=logger, dict_list=rows)
+        pgutil.db.write_to_table(conn=conn, table_name='predictions',
+                                 logger=logger, dict_list=rows)
     finally:
         conn.close()
-        game_id
 

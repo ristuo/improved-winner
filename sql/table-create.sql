@@ -35,6 +35,7 @@ create table odds (
   odds float,
   id integer,
   event_id varchar(100),
+  bet_id varchar(100),
   sport_name varchar(100),
   short_name varchar(100), 
   event_name varchar(100),
@@ -115,4 +116,20 @@ create table predictions (
   tournament varchar(100),
   sport_name varchar(100),
   model_name varchar(200)
-)
+);
+
+create table bets (
+  bet_time timestamp with time zone,
+  game_id varchar(100),
+  agency varchar(200),
+  agency_bet_id varchar(100),
+  bet float,
+  odds float,
+  sport_name varchar(100),
+  tournament varchar(100),
+  model_name varchar(100),
+  probability float,
+  bankroll float,
+  outcome_id varchar(100),
+  outcome_name varchar(200)
+);

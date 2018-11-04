@@ -1,0 +1,4 @@
+#!/bin/bash
+. secrets/set-db-creds-to-env.sh
+cd python
+python3 -m betting

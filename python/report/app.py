@@ -1,14 +1,12 @@
-from datalayer.datalayer import load_predictions, load_game_predictions, get_db_connection
+from datalayer.datalayer import load_predictions, load_game_predictions, get_db_connection, load_betting_results
 from datetime import datetime
+from report.visualize.static_plots import make_results_plot, make_plot
 import io
 import numpy as np
 from flask import render_template, Response, g
-import matplotlib.pyplot as plt
-plt.switch_backend('SVG')
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D
 
 
 from flask import Flask
@@ -72,6 +70,10 @@ def show_predictions():
     ]
     return render_template('predictions.html', predictions=predictions, keys=keys)
 
+@app.route('/results')
+def show_results():
+    return render_template('results.html')
+
 
 @app.route('/plots/jpmf-plot/<game_id>/')
 def get_plot(game_id):
@@ -84,6 +86,13 @@ def get_plot(game_id):
     FigureCanvas(fig).print_png(output)
     return Response(output.getvalue(), mimetype='image/png')
 
+@app.route('/plots/results')
+def get_results_plot():
+    betting_results = load_betting_results()
+    fig = make_results_plot(betting_results)
+    output = io.BytesIO()
+    FigureCanvas(fig).print_png(output)
+    return Response(output.getvalue(), mimetype='image/png')
 
 @app.route('/game/<game_id>/')
 def show_game(game_id):
@@ -99,23 +108,4 @@ def show_game(game_id):
     return render_template('game.html', game_id=game_id, game_df=game_df, pmat=pmat, colrange=range(0,ncol),
                            rowrange=range(0,nrow))
 
-
-def make_plot(game_df):
-    fig = plt.figure(figsize=(8, 3))
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax2 = fig.add_subplot(122, projection='3d')
-    ax2.view_init(60, 60)
-    x = game_df['home_team_score'].values
-    y = game_df['away_team_score'].values
-    top = game_df['probability'].values
-    width = depth = 1
-    bottom = np.zeros_like(top)
-    ax1.bar3d(x, y, bottom, width, depth, top, shade=True)
-    ax1.set_xlabel("Home team score")
-    ax1.set_ylabel("Away team score")
-    fig.suptitle('Joint probability mass function')
-    ax2.bar3d(x, y, bottom, width, depth, top, shade=True)
-    ax2.set_xlabel("Home team score")
-    ax2.set_ylabel("Away team score")
-    return fig
 

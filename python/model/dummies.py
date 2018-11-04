@@ -10,4 +10,7 @@ def make_team_dummies(games):
 
 
 def make_goalie_dummies(dataset, n_goalies):
-    return _make_dummies(dataset, ['home_goalie_index', 'away_goalie_index'], n_goalies)
+    return _make_dummies(
+        dataset,
+        ['home_goalie_index', 'away_goalie_index'],
+        n_goalies)
