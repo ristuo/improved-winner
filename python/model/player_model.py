@@ -99,7 +99,8 @@ class SimplePlayerModel:
         not_in_model = game_data > player_expected.shape[0]
         game_data[not_in_model] = player_expected.shape[0]
         player_expected_sorted = player_expected.sort_index().values.squeeze()
-        player_expected_sorted = np.append(player_expected_sorted, mean_expected)
+        player_expected_sorted = np.append(
+            player_expected_sorted, mean_expected)
 
         cutoff = int(game_data.values.shape[1]/2)
         home_player_e = np.apply_along_axis(
@@ -112,6 +113,7 @@ class SimplePlayerModel:
             1,
             player_expected_sorted[game_data.values][::, cutoff::]
         )
-        player_es = pd.DataFrame(np.stack((home_player_e, away_player_e), axis=1),
-                                 index=game_data.index, columns=['home_expected', 'away_expected'])
+        player_es = pd.DataFrame(
+            np.stack((home_player_e, away_player_e), axis=1),
+            index=game_data.index, columns=['home_expected', 'away_expected'])
         return player_es

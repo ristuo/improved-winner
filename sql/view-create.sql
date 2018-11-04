@@ -12,6 +12,7 @@ create view newest_odds_per_game as
     tournament_name,
     name,
     odds.dl_time,
+    bet_id,
     close_time,
     open_time,
     agency
@@ -39,6 +40,8 @@ select
   home_team, 
   away_team, 
   name, odds, 
+  id as outcome_id, 
+  bet_id,
   x.sport_name, 
   x.tournament,
   open_time,
@@ -57,6 +60,8 @@ left join (
     tournament_name as tournament, 
     dl_time, 
     event_name, 
+    id, 
+    bet_id,
     name, 
     close_time,
     open_time,
@@ -156,6 +161,8 @@ select
         a.name,
         a.probability,
         b.odds,
+        b.bet_id,
+        b.outcome_id,
         b.home_team_goals,
         b.away_team_goals,
         b.open_time,
@@ -176,3 +183,45 @@ on
   a.game_id = b.game_id and 
   a.name = b.name;
 
+create view betting_results as
+SELECT
+  *,  
+  CASE
+    WHEN observed_outcome = outcome_name THEN odds * bet -bet
+    WHEN observed_outcome IS NULL THEN NULL
+    ELSE -bet
+  END AS money_won,
+  CASE 
+    WHEN observed_outcome IS NULL THEN NULL
+    ELSE bet * (odds - 1) * probability
+  END AS expected_value
+FROM (
+  SELECT
+    bet_time,
+    a.game_id,
+    a.agency,
+    a.bet,
+    a.odds,
+    a.probability,
+    a.bankroll,
+    a.sport_name,
+    a.tournament,
+    a.model_name,
+    a.outcome_name,
+    b.home_team,
+    b.away_team,
+    b.home_team_goals,
+    b.away_team_goals,
+    b.game_date,
+    CASE
+      WHEN home_team_goals > away_team_goals THEN home_team
+      WHEN away_team_goals > home_team_goals THEN away_team
+      WHEN home_team_goals IS NULL THEN NULL
+      ELSE 'Tasapeli'
+    END AS observed_outcome
+  FROM
+    bets a
+  LEFT JOIN
+    games b
+  ON  
+    a.game_id = b.game_id) x;
